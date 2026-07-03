@@ -24,6 +24,7 @@ public class ModConfiguration
     public readonly ConfigEntry<float> CockpitHeadRightOffset;
     public readonly ConfigEntry<KeyCode> RecenterShortcut;
     public readonly ConfigEntry<bool> SavePositionTrigger;
+    public readonly ConfigEntry<bool> HudWindscreenClipping;
 
     private readonly Dictionary<string, (ConfigEntry<float> Forward, ConfigEntry<float> Right)> _perPlaneEntries = new();
 
@@ -91,6 +92,12 @@ public class ModConfiguration
             "Cockpit Head Right Offset",
             0.0f,
             "Offset in meters applied to the cockpit head right vector. Moves you left (negative) or right (positive) to correct off-center seating.");
+
+        HudWindscreenClipping = config.Bind(
+            "General",
+            "HUD Windscreen Clipping",
+            true,
+            "Clip the HUD attitude indicator (pitch ladder) behind cockpit geometry so it only shows through the windscreen. Disable to draw it on top of the instruments.");
 
         RecenterShortcut = config.Bind(
             "Input",

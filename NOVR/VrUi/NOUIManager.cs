@@ -1,4 +1,6 @@
 using System;
+using System.Reflection;
+using HarmonyLib;
 using NOVR.VrCamera;
 using NOVR.VrUi.Native;
 using UnityEngine;
@@ -9,12 +11,19 @@ namespace NOVR.VrUi;
 public class NOUIManager : NOVRBehaviour
 {
     private const float SmoothingFactor = 10f;
+    // The game's overlay camera that renders cockpit interior geometry (layers Cockpit and
+    // CockpitAndExternal). The clipped HUD camera must render right after it, because the
+    // next camera in the stack (postProcessingRenderer) clears the depth buffer.
+    private const string CockpitRendererCameraName = "cockpitRenderer";
+    private static readonly FieldInfo? ClearDepthField = AccessTools.Field(typeof(UniversalAdditionalCameraData), "m_ClearDepth");
     private Camera? _cockpitHudCamera;
+    private Camera? _clippedHudCamera;
     private GameObject? _smoothedForwardReference;
 
     public static NOUIManager I { get; private set; }
 
-    public Camera CockpitHudCamera => _cockpitHudCamera ??= CreateUiCamera("VrCockpitHudCamera", 100);
+    public Camera CockpitHudCamera => _cockpitHudCamera ??= CreateUiCamera("VrCockpitHudCamera", 100, LayerHelper.GetVrUiLayer());
+    public Camera ClippedHudCamera => _clippedHudCamera ??= CreateClippedHudCamera();
     public GameObject CockpitHudReference => _smoothedForwardReference ??= CreateSmoothedForwardReference();
 
     private GameObject CreateSmoothedForwardReference()
@@ -60,7 +69,22 @@ public class NOUIManager : NOVRBehaviour
         ConfigureUiCameras();
         UpdateSmoothedPosition();
     }
-    
+
+    private static void SetClearDepth(Camera camera, bool clearDepth)
+    {
+        var additionalCameraData = camera.GetComponent<UniversalAdditionalCameraData>();
+        if (additionalCameraData == null) return;
+
+        if (ClearDepthField != null)
+        {
+            ClearDepthField.SetValue(additionalCameraData, clearDepth);
+        }
+        else
+        {
+            Debug.LogWarning($"{nameof(NOUIManager)}: UniversalAdditionalCameraData.m_ClearDepth not found; HUD windscreen clipping disabled");
+        }
+    }
+
     private void UpdateSmoothedPosition()
     {
         var smoothedForwardReference = CockpitHudReference;
@@ -71,7 +95,7 @@ public class NOUIManager : NOVRBehaviour
 
     
 
-    private Camera CreateUiCamera(string cameraName, float depth)
+    private Camera CreateUiCamera(string cameraName, float depth, LayerHelper.Layers layer)
     {
         var poseDriver = Create<NOVRPoseDriver>(transform);
         poseDriver.name = cameraName;
@@ -79,7 +103,7 @@ public class NOUIManager : NOVRBehaviour
         var camera = poseDriver.gameObject.AddComponent<Camera>();
         var additionalCameraData = poseDriver.gameObject.AddComponent<UniversalAdditionalCameraData>();
         VrCameraManager.IgnoredCameras.Add(camera);
-        
+
 
         camera.stereoTargetEye = StereoTargetEyeMask.Both;
         camera.targetTexture = null;
@@ -88,9 +112,21 @@ public class NOUIManager : NOVRBehaviour
         camera.depth = depth;
         camera.allowHDR = false;
         camera.allowMSAA = false;
-        camera.cullingMask = 1 << (int)LayerHelper.GetVrUiLayer();
+        camera.cullingMask = 1 << (int)layer;
         additionalCameraData.renderType = CameraRenderType.Overlay;
 
+        return camera;
+    }
+
+    private Camera CreateClippedHudCamera()
+    {
+        var camera = CreateUiCamera("VrClippedHudCamera", 99, LayerHelper.GetVrUiClippedHudLayer());
+
+        // Keep the depth buffer written by the main camera so HUD elements on the clipped
+        // layer are occluded by opaque cockpit geometry (instrument panel, canopy frame).
+        // URP exposes clearDepth as get-only, so the serialized field is set via reflection.
+        SetClearDepth(camera, false);
+        camera.clearFlags = CameraClearFlags.Nothing;
         return camera;
     }
 
@@ -102,8 +138,29 @@ public class NOUIManager : NOVRBehaviour
         }
 
         var cockpitHudCamera = CockpitHudCamera;
+        var clippedHudCamera = ClippedHudCamera;
         var cameraStack = newCam.gameObject.GetComponent<UniversalAdditionalCameraData>()?.cameraStack;
-        if (cameraStack != null && !cameraStack.Contains(cockpitHudCamera))
+        if (cameraStack == null)
+        {
+            return;
+        }
+
+        // The clipped camera must render before the main HUD camera: it depth-tests against
+        // the scene depth buffer, which the HUD camera clears when it renders.
+        if (!cameraStack.Contains(clippedHudCamera))
+        {
+            var hudIndex = cameraStack.IndexOf(cockpitHudCamera);
+            if (hudIndex >= 0)
+            {
+                cameraStack.Insert(hudIndex, clippedHudCamera);
+            }
+            else
+            {
+                cameraStack.Add(clippedHudCamera);
+            }
+        }
+
+        if (!cameraStack.Contains(cockpitHudCamera))
         {
             cameraStack.Add(cockpitHudCamera);
         }
@@ -112,16 +169,75 @@ public class NOUIManager : NOVRBehaviour
     private void ConfigureUiCameras()
     {
         ConfigureUiCamera(CockpitHudCamera);
+        ConfigureClippedHudCamera(ClippedHudCamera);
+        EnforceClippedCameraStackPosition();
+    }
+
+    // The clipped HUD camera must render directly after the game's cockpitRenderer to see
+    // its depth buffer, but the game adds its overlay cameras to the stack at its own pace,
+    // so the position is re-checked every frame.
+    private void EnforceClippedCameraStackPosition()
+    {
+        var mainCamera = APIBus.MainCamera;
+        if (mainCamera == null) return;
+
+        var cameraStack = mainCamera.GetComponent<UniversalAdditionalCameraData>()?.cameraStack;
+        if (cameraStack == null) return;
+
+        var clippedHudCamera = ClippedHudCamera;
+        var currentIndex = cameraStack.IndexOf(clippedHudCamera);
+        if (currentIndex < 0) return;
+
+        var desiredIndex = -1;
+        for (var i = 0; i < cameraStack.Count; i++)
+        {
+            var stackCamera = cameraStack[i];
+            if (stackCamera != null && stackCamera.name == CockpitRendererCameraName)
+            {
+                desiredIndex = i + 1;
+                break;
+            }
+        }
+
+        if (desiredIndex < 0)
+        {
+            // No cockpit renderer (e.g. menus): keep it just before the main HUD camera.
+            var hudIndex = cameraStack.IndexOf(CockpitHudCamera);
+            desiredIndex = hudIndex >= 0 ? hudIndex : cameraStack.Count;
+        }
+
+        if (desiredIndex > currentIndex) desiredIndex--;
+        if (desiredIndex == currentIndex) return;
+
+        cameraStack.RemoveAt(currentIndex);
+        cameraStack.Insert(desiredIndex, clippedHudCamera);
+        Debug.Log($"{nameof(NOUIManager)}: moved clipped HUD camera in stack from {currentIndex} to {desiredIndex}");
     }
 
     private static void ConfigureUiCamera(Camera camera)
     {
-        
+
         camera.clearFlags = CameraClearFlags.Depth;
         camera.backgroundColor = Color.clear;
         camera.targetTexture = null;
         camera.nearClipPlane = 0.01f;
         camera.farClipPlane = 10000f;
         camera.rect = new Rect(0f, 0f, 1f, 1f);
+    }
+
+    private static void ConfigureClippedHudCamera(Camera camera)
+    {
+        camera.clearFlags = CameraClearFlags.Nothing;
+        camera.backgroundColor = Color.clear;
+        camera.targetTexture = null;
+        camera.rect = new Rect(0f, 0f, 1f, 1f);
+
+        // This camera depth-tests against cockpitRenderer's buffer (near 0.01, far 5).
+        // The projections don't need to match: the pitch ladder sits at ~1000m, and with
+        // near=0.01 its depth value lands below any cockpit geometry inside 5m while still
+        // beating the cleared far-plane value, so cockpit occludes it and sky doesn't.
+        // The far plane just has to contain the 1000m slices.
+        camera.nearClipPlane = 0.01f;
+        camera.farClipPlane = 10000f;
     }
 }
