@@ -30,8 +30,6 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
     private Button? _nativeUiToggleButton;
     private Text? _environmentValueText;
     private Button? _environmentToggleButton;
-    private Text? _hudClippingValueText;
-    private Button? _hudClippingToggleButton;
     private Text? _scaleValueText;
     private Text? _distanceValueText;
     private Text? _heightValueText;
@@ -65,14 +63,14 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
         CreateImage("Background", _container, BackgroundColor, Vector2.zero, _container.sizeDelta);
         CreateText("Header", _container, "VR UI SETTINGS", new Vector2(0f, NativeUiLayout.HeaderY), NativeUiLayout.HeaderSize, 22, TextAnchor.MiddleCenter, Color.white);
 
-        var panel = CreatePanel("VR UI Settings Panel", _container, PanelColor, Vector2.zero, new Vector2(980f, 840f));
-        CreateText("Panel Header", panel, "MENU MODE", new Vector2(0f, 370f), new Vector2(860f, 34f), 19, TextAnchor.MiddleCenter, Color.white);
+        var panel = CreatePanel("VR UI Settings Panel", _container, PanelColor, Vector2.zero, new Vector2(980f, 720f));
+        CreateText("Panel Header", panel, "MENU MODE", new Vector2(0f, 310f), new Vector2(860f, 34f), 19, TextAnchor.MiddleCenter, Color.white);
 
         CreateToggleRow(
             panel,
             "NATIVE VR UI",
             "Use NOVR's native menu instead of the stock rendered UI.",
-            new Vector2(0f, 290f),
+            new Vector2(0f, 230f),
             ToggleNativeUi,
             out _nativeUiToggleButton,
             out _nativeUiValueText);
@@ -81,18 +79,18 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
             panel,
             "3D MENU ENVIRONMENT",
             "Show an experimental scene behind the native menu.",
-            new Vector2(0f, 200f),
+            new Vector2(0f, 140f),
             ToggleEnvironment,
             out _environmentToggleButton,
             out _environmentValueText);
 
-        CreateText("Placement Header", panel, "PLACEMENT", new Vector2(0f, 110f), new Vector2(860f, 30f), 17, TextAnchor.MiddleCenter, new Color(0.84f, 0.90f, 0.92f, 1f));
+        CreateText("Placement Header", panel, "PLACEMENT", new Vector2(0f, 50f), new Vector2(860f, 30f), 17, TextAnchor.MiddleCenter, new Color(0.84f, 0.90f, 0.92f, 1f));
 
         CreateSettingRow(
             panel,
             "SCALE",
             "Overall native menu size.",
-            new Vector2(0f, 35f),
+            new Vector2(0f, -30f),
             () => ChangeScale(-0.05f),
             () => ChangeScale(0.05f),
             out _scaleValueText);
@@ -101,7 +99,7 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
             panel,
             "DISTANCE",
             "Meters from your headset when opened or recentered.",
-            new Vector2(0f, -60f),
+            new Vector2(0f, -125f),
             () => ChangeDistance(-0.1f),
             () => ChangeDistance(0.1f),
             out _distanceValueText);
@@ -110,25 +108,14 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
             panel,
             "HEIGHT OFFSET",
             "Vertical offset in meters relative to your headset.",
-            new Vector2(0f, -155f),
+            new Vector2(0f, -220f),
             () => ChangeHeightOffset(-0.05f),
             () => ChangeHeightOffset(0.05f),
             out _heightValueText);
 
-        CreateText("Flight Hud Header", panel, "FLIGHT HUD", new Vector2(0f, -230f), new Vector2(860f, 30f), 17, TextAnchor.MiddleCenter, new Color(0.84f, 0.90f, 0.92f, 1f));
-
-        CreateToggleRow(
-            panel,
-            "WINDSCREEN CLIPPING",
-            "Cut the attitude indicator off behind cockpit instruments.",
-            new Vector2(0f, -295f),
-            ToggleHudClipping,
-            out _hudClippingToggleButton,
-            out _hudClippingValueText);
-
-        CreateMenuButton("RESET DEFAULTS", panel, new Vector2(-160f, -385f), new Vector2(220f, 42f), ButtonColor, ResetDefaults, 13);
-        CreateMenuButton("RECENTER", panel, new Vector2(160f, -385f), new Vector2(180f, 42f), ActionButtonColor, Recenter, 14);
-        _statusText = CreateText("Status", panel, "", new Vector2(0f, -412f), new Vector2(860f, 34f), 13, TextAnchor.MiddleCenter, new Color(0.84f, 0.90f, 0.92f, 1f));
+        CreateMenuButton("RESET DEFAULTS", panel, new Vector2(-160f, -310f), new Vector2(220f, 42f), ButtonColor, ResetDefaults, 13);
+        CreateMenuButton("RECENTER", panel, new Vector2(160f, -310f), new Vector2(180f, 42f), ActionButtonColor, Recenter, 14);
+        _statusText = CreateText("Status", panel, "", new Vector2(0f, -340f), new Vector2(860f, 34f), 13, TextAnchor.MiddleCenter, new Color(0.84f, 0.90f, 0.92f, 1f));
 
         CreateMenuButton("BACK", _container, new Vector2(NativeUiLayout.FooterLeftX, NativeUiLayout.FooterY), NativeUiLayout.FooterButtonSize, BackButtonColor, Close, 15);
         NativePanelTransition.SetVisible(_container, false, instant: true);
@@ -224,18 +211,6 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
             : "3D menu environment disabled.");
     }
 
-    private void ToggleHudClipping()
-    {
-        var config = ModConfiguration.Instance;
-        var nextValue = !config.HudWindscreenClipping.Value;
-        config.HudWindscreenClipping.Value = nextValue;
-        config.Config.Save();
-        RefreshValues();
-        SetStatus(nextValue
-            ? "Attitude indicator clips behind cockpit instruments."
-            : "Attitude indicator draws on top of cockpit instruments.");
-    }
-
     private void Recenter()
     {
         _recenter?.Invoke();
@@ -259,7 +234,6 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
         var config = ModConfiguration.Instance;
         RefreshNativeUiToggle(config.EnableNativeMenuUi.Value);
         RefreshEnvironmentToggle(config.EnableNativeMenuEnvironment.Value);
-        RefreshHudClippingToggle(config.HudWindscreenClipping.Value);
         if (_scaleValueText != null) _scaleValueText.text = $"{config.NativeMenuScale.Value:0.00}x";
         if (_distanceValueText != null) _distanceValueText.text = $"{config.NativeMenuDistance.Value:0.0} m";
         if (_heightValueText != null) _heightValueText.text = $"{config.NativeMenuHeightOffset.Value:+0.00;-0.00;0.00} m";
@@ -288,19 +262,6 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
         if (_environmentToggleButton != null)
         {
             NativeButtonFeedback.SetNormalColor(_environmentToggleButton, enabled ? ToggleOnColor : ToggleOffColor);
-        }
-    }
-
-    private void RefreshHudClippingToggle(bool enabled)
-    {
-        if (_hudClippingValueText != null)
-        {
-            _hudClippingValueText.text = enabled ? "ON" : "OFF";
-        }
-
-        if (_hudClippingToggleButton != null)
-        {
-            NativeButtonFeedback.SetNormalColor(_hudClippingToggleButton, enabled ? ToggleOnColor : ToggleOffColor);
         }
     }
 

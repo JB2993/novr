@@ -21,7 +21,6 @@ public class PitchCompassBehavior : MonoBehaviour
     private Material _depthTestedMaterial;
     private float _fullTextureDisplayHeight;
     private bool _hasBuiltSlices;
-    private bool _onClippedLayer = true;
     
     
     private FlightHud _flightHud;
@@ -56,18 +55,8 @@ public class PitchCompassBehavior : MonoBehaviour
         _sliceRoot.transform.rotation = Quaternion.LookRotation(targetForward, targetUp);
         
         _sourcePitchCompass.enabled = false;
-        ApplyClippingSetting();
     }
 
-    private void ApplyClippingSetting()
-    {
-        var clipToWindscreen = ModConfiguration.Instance?.HudWindscreenClipping.Value ?? true;
-        if (clipToWindscreen == _onClippedLayer) return;
-
-        _onClippedLayer = clipToWindscreen;
-        LayerHelper.SetLayerRecursive(_sliceRoot, _onClippedLayer ? LayerHelper.GetVrUiClippedHudLayer() : LayerHelper.GetVrUiLayer());
-    }
-    
 
     
     private void BuildSlices()
@@ -133,9 +122,7 @@ public class PitchCompassBehavior : MonoBehaviour
         // The slices live on their own layer so only the depth-testing ClippedHudCamera
         // renders them: cockpit geometry occludes them, leaving the ladder visible only
         // through the windscreen.
-        _onClippedLayer = true;
         LayerHelper.SetLayerRecursive(_sliceRoot, LayerHelper.GetVrUiClippedHudLayer());
-        ApplyClippingSetting();
 
         _hasBuiltSlices = true;
         Debug.Log($"{nameof(PitchCompassBehavior)}: Split pitch compass into {SliceCount} slices");
@@ -263,7 +250,7 @@ public class PitchCompassBehavior : MonoBehaviour
     }
 
     // Sprites/Default declares no ZTest state, so it depth-tests with the LEqual default,
-    // unlike UI shaders that render with ZTest Always via unity_GUIZTestMode.
+    // unlike the game's HUD shader which renders with ZTest Always.
     private Material GetDepthTestedMaterial()
     {
         if (_depthTestedMaterial != null)
@@ -271,10 +258,10 @@ public class PitchCompassBehavior : MonoBehaviour
             return _depthTestedMaterial;
         }
 
-        var shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        var shader = Shader.Find("Sprites/Default");
         if (shader == null)
         {
-            Debug.LogWarning($"{nameof(PitchCompassBehavior)}: No depth-tested shader found, falling back to source material");
+            Debug.LogWarning($"{nameof(PitchCompassBehavior)}: Sprites/Default not found, cockpit geometry will not occlude the pitch compass");
             return _sourcePitchCompass.material;
         }
 
@@ -287,7 +274,6 @@ public class PitchCompassBehavior : MonoBehaviour
         if (_depthTestedMaterial != null)
         {
             Destroy(_depthTestedMaterial);
-            _depthTestedMaterial = null;
         }
     }
 }
