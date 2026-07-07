@@ -60,9 +60,7 @@ public class VrUiCursor: NOVRBehaviour
     private bool _hasActiveCanvas;
     private static readonly bool _showDebugOverlay = true;
     private Ray _lastProbeRay;
-    private bool _lastProbeHit;
     private Vector3 _lastCursorTargetPos;
-    private Vector3 _lastCanvasHitWorld;
     private string _lastCanvasName = "";
     private Texture2D? _debugDotTexture;
     private Text? _debugText;
@@ -374,88 +372,31 @@ public class VrUiCursor: NOVRBehaviour
         Vector3 probeOrigin = anchor != null ? anchor.position : camera.transform.position;
         Quaternion referenceRotation = GetProjectionReferenceRotation();
 
-        // Compute mouse-driven world direction (same as angle-based fallback)
+        // Compute mouse-driven world direction
         float cursorPitch = Mathf.Lerp(-45f, 45f, Mathf.Clamp01(mousePos.y / Screen.height));
         float cursorYaw = Mathf.Lerp(-65f, 65f, Mathf.Clamp01(mousePos.x / Screen.width));
         Vector3 localDir = Quaternion.Euler(-cursorPitch, cursorYaw, 0f) * Vector3.forward;
         Vector3 worldDir = referenceRotation * localDir;
 
-        // Probe ray follows the mouse-driven direction (not head-forward)
         Ray probeRay = new Ray(probeOrigin, worldDir);
         _lastProbeRay = probeRay;
 
-        Canvas targetCanvas = null;
-        _lastProbeHit = false;
-
-        if (_hasActiveCanvas && _activeCanvas != null && _activeCanvas.gameObject.activeInHierarchy)
+        // Find the first canvas plane the ray intersects (no rect clamping)
+        if (VrCanvasHitTester.RaycastCanvasPlanes(probeRay, out var hit))
         {
-            // Compute panel-relative cursor world position on the cached canvas
-            var rt = _activeCanvas.GetComponent<RectTransform>();
-            Vector2 canvasSize = rt.rect.size;
-            Vector2 pivot = rt.pivot;
-            float nx = Mathf.Clamp01(mousePos.x / Screen.width);
-            float ny = Mathf.Clamp01(mousePos.y / Screen.height);
-            float localX = Mathf.Lerp(-canvasSize.x * pivot.x, canvasSize.x * (1f - pivot.x), nx);
-            float localY = Mathf.Lerp(-canvasSize.y * pivot.y, canvasSize.y * (1f - pivot.y), ny);
-            Vector3 localPoint = new Vector3(localX, localY, 0f);
-            Vector3 cursorWorldPos = rt.TransformPoint(localPoint);
+            _activeCanvas = hit.Canvas;
+            _hasActiveCanvas = true;
+            _lastCanvasName = hit.Canvas.name;
+            _lastCursorTargetPos = hit.WorldPoint;
 
-            // Revalidation ray from viewer → cursor world position on the canvas.
-            // This keeps the cursor and the ray in sync, preventing the angle-vs-UV mismatch
-            // that caused the cursor to "hop off" when still 1/3 from the edge.
-            Vector3 recheckDir = (cursorWorldPos - probeOrigin).normalized;
-            Ray recheckRay = new Ray(probeOrigin, recheckDir);
-            if (VrCanvasHitTester.RaycastSingle(_activeCanvas, recheckRay, out var recheckHit))
-            {
-                targetCanvas = _activeCanvas;
-                _lastProbeHit = true;
-                _lastCanvasHitWorld = recheckHit.WorldPoint;
-            }
-            else
-            {
-                _hasActiveCanvas = false;
-                _activeCanvas = null;
-            }
-        }
-
-        if (targetCanvas == null)
-        {
-            if (VrCanvasHitTester.RaycastCanvases(probeRay, out var probeHit))
-            {
-                targetCanvas = probeHit.Canvas;
-                _activeCanvas = targetCanvas;
-                _hasActiveCanvas = true;
-                _lastProbeHit = true;
-                _lastCanvasHitWorld = probeHit.WorldPoint;
-            }
-            else
-            {
-                _hasActiveCanvas = false;
-            }
-        }
-
-        if (_hasActiveCanvas && targetCanvas != null)
-        {
-            _lastCanvasName = targetCanvas.name;
-            var rectTransform = targetCanvas.GetComponent<RectTransform>();
-            Vector2 canvasSize = rectTransform.rect.size;
-            Vector2 pivot = rectTransform.pivot;
-
-            float nx = Mathf.Clamp01(mousePos.x / Screen.width);
-            float ny = Mathf.Clamp01(mousePos.y / Screen.height);
-
-            float localX = Mathf.Lerp(-canvasSize.x * pivot.x, canvasSize.x * (1f - pivot.x), nx);
-            float localY = Mathf.Lerp(-canvasSize.y * pivot.y, canvasSize.y * (1f - pivot.y), ny);
-
-            Vector3 localPoint = new Vector3(localX, localY, 0f);
-            Vector3 worldPos = rectTransform.TransformPoint(localPoint);
-            _lastCursorTargetPos = worldPos;
-
-            _cursor.transform.position = worldPos;
-            _cursor.transform.rotation = Quaternion.LookRotation(rectTransform.forward, rectTransform.up);
+            _cursor.transform.position = hit.WorldPoint;
+            var rt = hit.Canvas.GetComponent<RectTransform>();
+            _cursor.transform.rotation = Quaternion.LookRotation(rt.forward, rt.up);
         }
         else
         {
+            _hasActiveCanvas = false;
+            _activeCanvas = null;
             _lastCanvasName = "(none)";
             _cursor.SetActive(false);
         }
@@ -601,7 +542,7 @@ public class VrUiCursor: NOVRBehaviour
         lines.Add("");
 
         lines.Add($"ProbeRay: origin={_lastProbeRay.origin:F3} dir={_lastProbeRay.direction:F3}");
-        lines.Add($"Hit: {_lastProbeHit}");
+        lines.Add($"Hit: {_hasActiveCanvas}");
         lines.Add($"ActiveCanvas: {_lastCanvasName}");
         lines.Add($"CursorTarget: {_lastCursorTargetPos:F3}");
 
@@ -884,13 +825,13 @@ public class VrUiCursor: NOVRBehaviour
         }
 
         _debugText.text =
-            $"Act:{_lastCanvasName}  Hit:{_lastProbeHit}  Cvs:{VrCanvasHitTester.GetRegisteredCanvasCount()}\n" +
+            $"Act:{_lastCanvasName}  Hit:{_hasActiveCanvas}  Cvs:{VrCanvasHitTester.GetRegisteredCanvasCount()}\n" +
             $"M:({mousePos.x:F0},{mousePos.y:F0})  N:({mousePos.x / Screen.width:F3},{mousePos.y / Screen.height:F3})\n" +
             $"W:{_lastCursorTargetPos:F2}\n" +
             $"R:{GetProjectionReferenceRotation().eulerAngles:F1}  A:{_hasProjectionReferenceOverride}" +
             canvasInfo;
 
-        _debugText.color = _lastProbeHit
+        _debugText.color = _hasActiveCanvas
             ? new Color(0.2f, 1f, 0.2f)
             : new Color(1f, 0.3f, 0.3f);
 
@@ -917,9 +858,9 @@ public class VrUiCursor: NOVRBehaviour
         if (_debugProbeRay == null) return;
         float rayLen = 10f;
         Vector3 end = _lastProbeRay.origin + _lastProbeRay.direction * rayLen;
-        Vector3 hitEnd = _lastProbeHit ? _lastCursorTargetPos : end;
+        Vector3 hitEnd = _hasActiveCanvas ? _lastCursorTargetPos : end;
         SetLine(_debugProbeRay, new[] { _lastProbeRay.origin, hitEnd },
-            _lastProbeHit ? Color.green : Color.yellow);
+            _hasActiveCanvas ? Color.green : Color.yellow);
     }
 
     private void DrawHitCross()

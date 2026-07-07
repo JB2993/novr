@@ -180,6 +180,73 @@ namespace NOVR.VrUi
             return true;
         }
 
+        /// <summary>
+        /// Intersect ray against registered canvas infinite planes (ignoring rect bounds).
+        /// Returns the closest front-face plane hit that has a graphic at the intersection
+        /// point (interactive content). If no plane has a graphic, returns the closest canvas
+        /// as a fallback so the cursor still tracks the ray. This allows the cursor to pass
+        /// through transparent canvas areas to reach interactive content on canvases behind.
+        /// </summary>
+        public static bool RaycastCanvasPlanes(Ray ray, out CanvasHit hit, bool acceptBackFace = false)
+        {
+            hit = default;
+
+            var uiCamera = APIBus.CockpitHudCamera;
+
+            List<(float distance, Canvas canvas, Vector3 worldPoint, Vector2 localPoint)> candidates =
+                new(_registeredCanvases.Count);
+
+            foreach (var canvas in _registeredCanvases)
+            {
+                if (canvas == null || !canvas.gameObject.activeInHierarchy) continue;
+                if (canvas.worldCamera != uiCamera) continue;
+                if (IsCanvasRaycastBlocked(canvas)) continue;
+
+                var rt = canvas.GetComponent<RectTransform>();
+                if (rt == null) continue;
+
+                Vector3 planeNormal = rt.forward;
+                Vector3 planePoint = rt.position;
+
+                float denom = Vector3.Dot(planeNormal, ray.direction);
+                if (Mathf.Abs(denom) < 0.0001f) continue;
+                if (!acceptBackFace && denom < 0f) continue;
+
+                float t = Vector3.Dot(planeNormal, planePoint - ray.origin) / denom;
+                if (t < 0f) continue;
+
+                Vector3 worldPoint = ray.GetPoint(t);
+                Vector2 localPoint = rt.InverseTransformPoint(worldPoint);
+
+                candidates.Add((t, canvas, worldPoint, localPoint));
+            }
+
+            if (candidates.Count == 0) return false;
+
+            candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+            // Walk closest-first; skip planes with no graphic so the cursor passes through
+            // to interactive content behind.
+            Canvas fallbackCanvas = candidates[0].canvas;
+            Vector3 fallbackWorld = candidates[0].worldPoint;
+            Vector2 fallbackLocal = candidates[0].localPoint;
+            float fallbackDist = candidates[0].distance;
+
+            foreach (var (dist, canvas, worldPt, localPt) in candidates)
+            {
+                bool hasGraphic = HasGraphicAtPoint(canvas, localPt);
+                if (hasGraphic)
+                {
+                    hit = new CanvasHit(canvas, worldPt, localPt, dist, true);
+                    return true;
+                }
+            }
+
+            // No canvas has a graphic at the hit point — fall back to the closest
+            hit = new CanvasHit(fallbackCanvas, fallbackWorld, fallbackLocal, fallbackDist, false);
+            return true;
+        }
+
         private static bool HasGraphicAtPoint(Canvas canvas, Vector2 localPoint)
         {
             var raycaster = canvas.GetComponent<GraphicRaycaster>();
