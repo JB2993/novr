@@ -50,6 +50,17 @@ internal static class DynamicMapVrCursorPatch
                 var camera = APIBus.CockpitHudCamera;
                 if (camera == null) return true;
 
+                // VR-only: if no canvas is under the cursor ray, no map icon can be selected.
+                // Return false to suppress the flat-screen SelectFromMap logic (which would
+                // produce incorrect results in VR).
+                Ray cursorRay = new Ray(camera.transform.position,
+                    (cursor.CursorPosition - camera.transform.position).normalized);
+
+                if (!VrCanvasHitTester.RaycastCanvases(cursorRay, out _))
+                {
+                    return false;
+                }
+
                 // Calculate screen point exactly in the VR camera's screen/viewport space
                 // to match the coordinate system of iconWorldPositions projected via the same camera.
                 var cursorScreenPoint = (Vector2)camera.WorldToScreenPoint(cursor.CursorPosition);

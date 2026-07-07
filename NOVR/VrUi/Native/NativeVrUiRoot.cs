@@ -68,6 +68,14 @@ public class NativeVrUiRoot : NOVRBehaviour
     public GameObject? OriginalMainCanvas => _mainCanvas;
     public NativeGameActionAdapter Actions => _actions;
 
+    private void OnDestroy()
+    {
+        if (_canvas != null)
+            VrCanvasHitTester.Unregister(_canvas);
+        if (_recenterWidgetCanvas != null)
+            VrCanvasHitTester.Unregister(_recenterWidgetCanvas);
+    }
+
     private void Start()
     {
         RefreshEnabledState();
@@ -212,6 +220,8 @@ public class NativeVrUiRoot : NOVRBehaviour
 
         _root.AddComponent<GraphicRaycaster>();
         LayerHelper.SetLayerRecursive(_root.transform, LayerHelper.GetVrUiLayer());
+
+        VrCanvasHitTester.Register(_canvas);
 
         _mainMenuShell = _root.AddComponent<NativeMainMenuShell>();
         _mainMenuShell.Initialize(_actions, rectTransform, OpenVrUiSettingsPanel);
@@ -419,6 +429,8 @@ public class NativeVrUiRoot : NOVRBehaviour
 
         _recenterWidgetRoot.AddComponent<GraphicRaycaster>();
         LayerHelper.SetLayerRecursive(_recenterWidgetRoot.transform, LayerHelper.GetVrUiLayer());
+
+        VrCanvasHitTester.Register(_recenterWidgetCanvas);
 
         var button = CreateRecenterButton(
             "VR CENTER",

@@ -11,7 +11,20 @@ public class UIRenderedCanvasBehavior : MonoBehaviour
 
     public virtual void Awake() => Initialize();
 
-    public virtual void OnEnable() => Initialize();
+    public virtual void OnEnable()
+    {
+        Initialize();
+        var canvas = gameObject.GetComponent<Canvas>();
+        if (canvas != null)
+            VrCanvasHitTester.Register(canvas);
+    }
+
+    public virtual void OnDisable()
+    {
+        var canvas = gameObject.GetComponent<Canvas>();
+        if (canvas != null)
+            VrCanvasHitTester.Unregister(canvas);
+    }
 
     private void Initialize()
     {
@@ -30,7 +43,8 @@ public class UIRenderedCanvasBehavior : MonoBehaviour
         Debug.Log($"{GetType().Name}: Set canvas render mode of {canvas.gameObject.name}. Is currently:  {canvas.renderMode}");
         canvas.worldCamera = APIBus.CockpitHudCamera;
         Debug.Log($"{GetType().Name}: Set canvas world camera of {canvas.gameObject.name}. Is currently:  {canvas.worldCamera}");
-        canvas.planeDistance = 1f;
+
+        VrCanvasHitTester.Register(canvas);
     }
     
     
