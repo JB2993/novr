@@ -58,20 +58,9 @@ public class VrUiCursor: NOVRBehaviour
     private bool _isOffscreen;
     private Canvas? _activeCanvas;
     private bool _hasActiveCanvas;
-    private static readonly bool _showDebugOverlay = true;
     private Ray _lastProbeRay;
     private Vector3 _lastCursorTargetPos;
     private string _lastCanvasName = "";
-    private Texture2D? _debugDotTexture;
-    private Text? _debugText;
-    private readonly List<LineRenderer> _debugBorders = new();
-    private readonly List<LineRenderer> _debugCanvasBorders = new();
-    private LineRenderer? _debugProbeRay;
-    private LineRenderer? _debugHitCross;
-    private LineRenderer? _debugAxisX;
-    private LineRenderer? _debugAxisY;
-    private LineRenderer? _debugAxisZ;
-    private Material? _debugLineMaterial;
     
     // Paired-diagnostic snapshots for VirtualMouse feed-vs-consume debugging
     private int _feedFrame;
@@ -86,6 +75,11 @@ public class VrUiCursor: NOVRBehaviour
     private GameObject? _hovered;
     private GameObject? _pointerPress;
     private bool _wasLeftDown;
+
+    // Standard UI input module references — disabled normally, re-enabled when the
+    // original game's control mapper (non-VR screen) is open so mouse clicks work.
+    private StandaloneInputModule? _standaloneInputModule;
+    private UnityEngine.InputSystem.UI.InputSystemUIInputModule? _inputSystemUIInputModule;
 
     public Camera? UiCamera
     {
@@ -167,6 +161,9 @@ public class VrUiCursor: NOVRBehaviour
         {
             DisableStandardUIModule();
         }
+        // When the original game's control mapper opens (rendered as 2D screen, not in VR),
+        // re-enable standard UI input modules so the original game's UI receives mouse clicks.
+        UpdateStandardUIModuleState();
         if (_texture == null) return;
         UpdateCursorAngles();
         
@@ -200,9 +197,6 @@ public class VrUiCursor: NOVRBehaviour
         {
             LogRaycastAtCursor();
         }
-
-        if (_showDebugOverlay)
-            UpdateDebugOverlay();
     }
 
     private void LateUpdate()
@@ -327,19 +321,19 @@ public class VrUiCursor: NOVRBehaviour
     {
         bool foundAny = false;
 
-        var stdModule = FindObjectOfType<StandaloneInputModule>();
-        if (stdModule != null)
+        _standaloneInputModule = FindObjectOfType<StandaloneInputModule>();
+        if (_standaloneInputModule != null)
         {
-            Debug.Log($"[NOVR] Disabling {stdModule.GetType().Name} so VR cursor drives UI exclusively.");
-            stdModule.enabled = false;
+            Debug.Log($"[NOVR] Disabling {_standaloneInputModule.GetType().Name} so VR cursor drives UI exclusively.");
+            _standaloneInputModule.enabled = false;
             foundAny = true;
         }
 
-        var inputSystemModule = FindObjectOfType<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
-        if (inputSystemModule != null)
+        _inputSystemUIInputModule = FindObjectOfType<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+        if (_inputSystemUIInputModule != null)
         {
-            Debug.Log($"[NOVR] Disabling {inputSystemModule.GetType().Name} so VR cursor drives UI exclusively.");
-            inputSystemModule.enabled = false;
+            Debug.Log($"[NOVR] Disabling {_inputSystemUIInputModule.GetType().Name} so VR cursor drives UI exclusively.");
+            _inputSystemUIInputModule.enabled = false;
             foundAny = true;
         }
 
@@ -348,6 +342,19 @@ public class VrUiCursor: NOVRBehaviour
             Debug.LogWarning("[NOVR] No UI InputModule found in scene yet, retrying next frame...");
         }
         return foundAny;
+    }
+
+    private void UpdateStandardUIModuleState()
+    {
+        if (_standaloneInputModule == null && _inputSystemUIInputModule == null)
+            return;
+
+        var controlMapperOpen = GameManager.controlMapper != null && GameManager.controlMapper.isOpen;
+
+        if (_standaloneInputModule != null)
+            _standaloneInputModule.enabled = controlMapperOpen;
+        if (_inputSystemUIInputModule != null)
+            _inputSystemUIInputModule.enabled = controlMapperOpen;
     }
 
     private void UpdateCursorAngles()
@@ -388,6 +395,7 @@ public class VrUiCursor: NOVRBehaviour
             _hasActiveCanvas = true;
             _lastCanvasName = hit.Canvas.name;
             _lastCursorTargetPos = hit.WorldPoint;
+            VrCanvasHitTester.LastActiveCanvas = hit.Canvas;
 
             _cursor.transform.position = hit.WorldPoint;
             var rt = hit.Canvas.GetComponent<RectTransform>();
@@ -397,6 +405,7 @@ public class VrUiCursor: NOVRBehaviour
         {
             _hasActiveCanvas = false;
             _activeCanvas = null;
+            VrCanvasHitTester.LastActiveCanvas = null;
             _lastCanvasName = "(none)";
             _cursor.SetActive(false);
         }
@@ -719,6 +728,48 @@ public class VrUiCursor: NOVRBehaviour
             idx++;
         }
 
+        // === DynamicMap diagnostics ===
+        {
+            var dynamicMap = SceneSingleton<global::DynamicMap>.i;
+            if (dynamicMap != null)
+            {
+                lines.Add("");
+                lines.Add("--- DynamicMap ---");
+                if (dynamicMap.mapImage != null)
+                {
+                    var img = dynamicMap.mapImage.GetComponent<Image>();
+                    var owningCanvas = dynamicMap.mapImage.canvas;
+                    bool isRegistered = owningCanvas != null && VrCanvasHitTester.GetRegisteredCanvases().Contains(owningCanvas);
+                    lines.Add($"mapImage.raycastTarget: {dynamicMap.mapImage.raycastTarget}");
+                    lines.Add($"mapImage.canvas.name: \"{owningCanvas?.name ?? "null"}\"");
+                    lines.Add($"mapImage.canvas.hasGraphicRaycaster: {owningCanvas?.GetComponent<GraphicRaycaster>() != null}");
+                    lines.Add($"mapImage.canvas.isRegistered: {isRegistered}");
+                    lines.Add($"mapImage.canvas.renderMode: {owningCanvas?.renderMode}");
+                    lines.Add($"mapImage.canvas.worldCamera: {owningCanvas?.worldCamera?.name ?? "null"}");
+                }
+                if (dynamicMap.mapBackground != null)
+                {
+                    lines.Add($"mapBackground.raycastTarget: {dynamicMap.mapBackground.raycastTarget}");
+                }
+                var dynCanvas = dynamicMap.GetComponent<Canvas>();
+                if (dynCanvas != null)
+                {
+                    bool dynIsRegistered = VrCanvasHitTester.GetRegisteredCanvases().Contains(dynCanvas);
+                    lines.Add($"DynamicMap own Canvas: {dynCanvas.name} registered={dynIsRegistered} worldCamera={dynCanvas.worldCamera?.name ?? "null"}");
+                }
+                var dynCanvasInParent = dynamicMap.GetComponentInParent<Canvas>();
+                if (dynCanvasInParent != null && dynCanvasInParent != dynCanvas)
+                {
+                    bool parentIsRegistered = VrCanvasHitTester.GetRegisteredCanvases().Contains(dynCanvasInParent);
+                    lines.Add($"DynamicMap parent Canvas: {dynCanvasInParent.name} registered={parentIsRegistered}");
+                }
+            }
+            else
+            {
+                lines.Add("DynamicMap: not found");
+            }
+        }
+
         lines.Add("");
         lines.Add("========================================");
 
@@ -734,256 +785,6 @@ public class VrUiCursor: NOVRBehaviour
         catch (System.Exception ex)
         {
             Debug.LogError($"[VrUiCursor] Failed to write diagnostics: {ex}");
-        }
-    }
-    
-    private LineRenderer? CreateDebugLine(float width, Color color, string name, int positionCount = 2)
-    {
-        if (_cursorCanvas == null) return null;
-        var go = new GameObject(name);
-        LayerHelper.SetLayerRecursive(go.transform, LayerHelper.GetVrUiLayer());
-        var lr = go.AddComponent<LineRenderer>();
-        lr.positionCount = positionCount;
-        lr.startWidth = width;
-        lr.endWidth = width;
-        lr.useWorldSpace = true;
-        lr.loop = false;
-        lr.startColor = color;
-        lr.endColor = color;
-        if (_debugLineMaterial != null) lr.sharedMaterial = _debugLineMaterial;
-        return lr;
-    }
-
-    private void EnsureDebugObjects()
-    {
-        if (_debugText != null || _cursorCanvas == null) return;
-
-        var textGo = new GameObject("CursorDebugText");
-        textGo.transform.SetParent(_cursorCanvas.transform, false);
-
-        _debugText = textGo.AddComponent<Text>();
-        _debugText.fontSize = 24;
-        _debugText.color = new Color(0.2f, 1f, 0.2f);
-        _debugText.alignment = TextAnchor.UpperLeft;
-        _debugText.horizontalOverflow = HorizontalWrapMode.Wrap;
-        _debugText.verticalOverflow = VerticalWrapMode.Overflow;
-        _debugText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-
-        var rt = textGo.GetComponent<RectTransform>();
-        rt.sizeDelta = new Vector2(700, 300);
-        rt.pivot = new Vector2(0f, 0.5f);
-        rt.anchorMin = new Vector2(1f, 0.5f);
-        rt.anchorMax = new Vector2(1f, 0.5f);
-        rt.anchoredPosition = new Vector2(20f, 0f);
-
-        textGo.GetComponent<Graphic>().raycastTarget = false;
-
-        // Probe ray (thick, yellow/red depending on hit)
-        _debugProbeRay = CreateDebugLine(0.02f, Color.yellow, "DebugProbeRay");
-
-        // Hit cross (thick, white) — 3 segments: horizontal, vertical
-        _debugHitCross = CreateDebugLine(0.02f, Color.white, "DebugHitCross", 3);
-
-        // Axis: X (red), Y (green), Z (blue) at probe origin — one line each
-        _debugAxisX = CreateDebugLine(0.008f, Color.red, "DebugAxisX");
-        _debugAxisY = CreateDebugLine(0.008f, Color.green, "DebugAxisY");
-        _debugAxisZ = CreateDebugLine(0.008f, Color.blue, "DebugAxisZ");
-    }
-
-    private void EnsureDebugLineMaterial()
-    {
-        if (_debugLineMaterial != null) return;
-        var shader = Shader.Find("Sprites/Default");
-        if (shader != null)
-        {
-            _debugLineMaterial = new Material(shader);
-            _debugLineMaterial.color = Color.white;
-        }
-    }
-
-    private void UpdateDebugOverlay()
-    {
-        if (_cursorCanvas == null) return;
-        EnsureDebugLineMaterial();
-        EnsureDebugObjects();
-        if (_debugText == null) return;
-
-        var mouse = _realMouse;
-        Vector2 mousePos = mouse != null ? mouse.position.ReadValue() : Vector2.zero;
-
-        // Collect canvas metrics + raycast diagnostic per canvas
-        string canvasInfo = "";
-        int idx = 0;
-        foreach (var c in VrCanvasHitTester.GetRegisteredCanvases())
-        {
-            if (c == null) continue;
-            string diag = VrCanvasHitTester.DebugRaycast(c, _lastProbeRay);
-            var crt = c.GetComponent<RectTransform>();
-            string sz = crt != null ? crt.rect.size.ToString("F3") : "?";
-            canvasInfo += $"\nC{idx}:{c.name} sz:{sz} -> {diag}";
-            idx++;
-        }
-
-        _debugText.text =
-            $"Act:{_lastCanvasName}  Hit:{_hasActiveCanvas}  Cvs:{VrCanvasHitTester.GetRegisteredCanvasCount()}\n" +
-            $"M:({mousePos.x:F0},{mousePos.y:F0})  N:({mousePos.x / Screen.width:F3},{mousePos.y / Screen.height:F3})\n" +
-            $"W:{_lastCursorTargetPos:F2}\n" +
-            $"R:{GetProjectionReferenceRotation().eulerAngles:F1}  A:{_hasProjectionReferenceOverride}" +
-            canvasInfo;
-
-        _debugText.color = _hasActiveCanvas
-            ? new Color(0.2f, 1f, 0.2f)
-            : new Color(1f, 0.3f, 0.3f);
-
-        DrawClickableBorders();
-        DrawCanvasBorders();
-        DrawProbeRay();
-        DrawHitCross();
-        DrawProbeOriginAxis();
-    }
-
-    private static LineRenderer? SetLine(LineRenderer? lr, Vector3[] positions, Color color)
-    {
-        if (lr == null) return null;
-        lr.gameObject.SetActive(true);
-        lr.startColor = color;
-        lr.endColor = color;
-        lr.positionCount = positions.Length;
-        lr.SetPositions(positions);
-        return lr;
-    }
-
-    private void DrawProbeRay()
-    {
-        if (_debugProbeRay == null) return;
-        float rayLen = 10f;
-        Vector3 end = _lastProbeRay.origin + _lastProbeRay.direction * rayLen;
-        Vector3 hitEnd = _hasActiveCanvas ? _lastCursorTargetPos : end;
-        SetLine(_debugProbeRay, new[] { _lastProbeRay.origin, hitEnd },
-            _hasActiveCanvas ? Color.green : Color.yellow);
-    }
-
-    private void DrawHitCross()
-    {
-        if (_debugHitCross == null) return;
-        float arm = 0.05f;
-        Vector3 p = _lastCursorTargetPos;
-        SetLine(_debugHitCross, new[]
-        {
-            p + Vector3.left * arm, p + Vector3.right * arm,
-            p + Vector3.up * arm, p + Vector3.down * arm,
-        }, Color.white);
-    }
-
-    private void DrawProbeOriginAxis()
-    {
-        Vector3 origin = _lastProbeRay.origin;
-        float arm = 0.15f;
-        if (_debugAxisX != null)
-            SetLine(_debugAxisX, new[] { origin, origin + Vector3.right * arm }, Color.red);
-        if (_debugAxisY != null)
-            SetLine(_debugAxisY, new[] { origin, origin + Vector3.up * arm }, Color.green);
-        if (_debugAxisZ != null)
-            SetLine(_debugAxisZ, new[] { origin, origin + Vector3.forward * arm }, Color.blue);
-    }
-
-    private void DrawCanvasBorders()
-    {
-        var canvases = VrCanvasHitTester.GetRegisteredCanvases();
-        while (_debugCanvasBorders.Count < canvases.Count)
-        {
-            var go = new GameObject($"DebugCanvasBorder_{_debugCanvasBorders.Count}");
-            LayerHelper.SetLayerRecursive(go.transform, LayerHelper.GetVrUiLayer());
-            var lr = go.AddComponent<LineRenderer>();
-            lr.positionCount = 5;
-            lr.startWidth = 0.01f;
-            lr.endWidth = 0.01f;
-            lr.useWorldSpace = true;
-            lr.loop = false;
-            if (_debugLineMaterial != null) lr.sharedMaterial = _debugLineMaterial;
-            _debugCanvasBorders.Add(lr);
-        }
-
-        for (int i = 0; i < _debugCanvasBorders.Count; i++)
-        {
-            if (i < canvases.Count)
-            {
-                var c = canvases[i];
-                if (c == null || !c.gameObject.activeInHierarchy)
-                {
-                    _debugCanvasBorders[i].gameObject.SetActive(false);
-                    continue;
-                }
-                var rt = c.GetComponent<RectTransform>();
-                if (rt == null)
-                {
-                    _debugCanvasBorders[i].gameObject.SetActive(false);
-                    continue;
-                }
-                var corners = new Vector3[4];
-                rt.GetWorldCorners(corners);
-                bool isActive = c == _activeCanvas;
-                SetLine(_debugCanvasBorders[i], new[] { corners[0], corners[1], corners[2], corners[3], corners[0] },
-                    isActive ? new Color(0f, 1f, 0f, 0.6f) : new Color(1f, 0f, 1f, 0.4f));
-            }
-            else
-            {
-                _debugCanvasBorders[i].gameObject.SetActive(false);
-            }
-        }
-    }
-
-    private void DrawClickableBorders()
-    {
-        var elements = new List<(RectTransform rt, Canvas canvas)>();
-        foreach (var canvas in VrCanvasHitTester.GetRegisteredCanvases())
-        {
-            if (canvas == null || !canvas.gameObject.activeInHierarchy) continue;
-            var selectables = canvas.GetComponentsInChildren<Selectable>(false);
-            foreach (var sel in selectables)
-            {
-                if (sel == null || !sel.gameObject.activeInHierarchy) continue;
-                var rt = sel.GetComponent<RectTransform>();
-                if (rt != null)
-                    elements.Add((rt, canvas));
-            }
-        }
-
-        while (_debugBorders.Count < elements.Count)
-        {
-            var go = new GameObject($"DebugBorder_{_debugBorders.Count}");
-            LayerHelper.SetLayerRecursive(go.transform, LayerHelper.GetVrUiLayer());
-            var lr = go.AddComponent<LineRenderer>();
-            lr.positionCount = 5;
-            lr.startWidth = 0.003f;
-            lr.endWidth = 0.003f;
-            lr.useWorldSpace = true;
-            lr.loop = false;
-            if (_debugLineMaterial != null) lr.sharedMaterial = _debugLineMaterial;
-            _debugBorders.Add(lr);
-        }
-
-        for (int i = 0; i < _debugBorders.Count; i++)
-        {
-            if (i < elements.Count)
-            {
-                var (rt, canvas) = elements[i];
-                var corners = new Vector3[4];
-                rt.GetWorldCorners(corners);
-
-                bool isActive = canvas == _activeCanvas;
-                _debugBorders[i].gameObject.SetActive(true);
-                _debugBorders[i].SetPositions(new Vector3[]
-                {
-                    corners[0], corners[1], corners[2], corners[3], corners[0]
-                });
-                _debugBorders[i].startColor = isActive ? Color.green : Color.cyan;
-                _debugBorders[i].endColor = isActive ? Color.green : Color.cyan;
-            }
-            else
-            {
-                _debugBorders[i].gameObject.SetActive(false);
-            }
         }
     }
 }

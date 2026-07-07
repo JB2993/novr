@@ -28,6 +28,14 @@ namespace NOVR.VrUi
         private static readonly List<Canvas> _registeredCanvases = new();
         private static readonly List<RaycastResult> _graphicResults = new();
 
+        /// <summary>
+        /// Set by the cursor after each successful raycast to enable sticky-canvas fallback:
+        /// if no candidate has a graphic at the hit point, prefer the previous frame's active
+        /// canvas over the unconditionally closest plane (which a head-locked near-field canvas
+        /// would win by distance).
+        /// </summary>
+        internal static Canvas? LastActiveCanvas { get; set; }
+
         public static void Register(Canvas canvas)
         {
             if (canvas != null && !_registeredCanvases.Contains(canvas))
@@ -132,7 +140,7 @@ namespace NOVR.VrUi
             foreach (var canvas in _registeredCanvases)
             {
                 if (canvas == null || !canvas.gameObject.activeInHierarchy) continue;
-                if (canvas.worldCamera != uiCamera) continue;
+                if (!CameraMatches(canvas, uiCamera)) continue;
                 if (IsCanvasRaycastBlocked(canvas)) continue;
 
                 var rectTransform = canvas.GetComponent<RectTransform>();
@@ -187,6 +195,19 @@ namespace NOVR.VrUi
         /// as a fallback so the cursor still tracks the ray. This allows the cursor to pass
         /// through transparent canvas areas to reach interactive content on canvases behind.
         /// </summary>
+        private static bool CameraMatches(Canvas canvas, Camera uiCamera)
+        {
+            if (canvas.worldCamera == uiCamera) return true;
+            // Nested canvases may have worldCamera = null (inherits from root).
+            if (canvas.worldCamera == null)
+            {
+                var root = canvas.rootCanvas;
+                if (root != null && root != canvas && root.worldCamera == uiCamera)
+                    return true;
+            }
+            return false;
+        }
+
         public static bool RaycastCanvasPlanes(Ray ray, out CanvasHit hit, bool acceptBackFace = false)
         {
             hit = default;
@@ -199,7 +220,7 @@ namespace NOVR.VrUi
             foreach (var canvas in _registeredCanvases)
             {
                 if (canvas == null || !canvas.gameObject.activeInHierarchy) continue;
-                if (canvas.worldCamera != uiCamera) continue;
+                if (!CameraMatches(canvas, uiCamera)) continue;
                 if (IsCanvasRaycastBlocked(canvas)) continue;
 
                 var rt = canvas.GetComponent<RectTransform>();
@@ -225,34 +246,71 @@ namespace NOVR.VrUi
 
             candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
 
-            // Walk closest-first; skip planes with no graphic so the cursor passes through
-            // to interactive content behind.
-            Canvas fallbackCanvas = candidates[0].canvas;
-            Vector3 fallbackWorld = candidates[0].worldPoint;
-            Vector2 fallbackLocal = candidates[0].localPoint;
-            float fallbackDist = candidates[0].distance;
-
+            // 1. Walk closest-first; skip planes with no graphic so the cursor passes
+            //    through to interactive content behind.
             foreach (var (dist, canvas, worldPt, localPt) in candidates)
             {
-                bool hasGraphic = HasGraphicAtPoint(canvas, localPt);
-                if (hasGraphic)
+                if (HasGraphicAtPoint(canvas, localPt))
                 {
                     hit = new CanvasHit(canvas, worldPt, localPt, dist, true);
                     return true;
                 }
             }
 
-            // No canvas has a graphic at the hit point — fall back to the closest
-            hit = new CanvasHit(fallbackCanvas, fallbackWorld, fallbackLocal, fallbackDist, false);
+            // 2. Sticky fallback: prefer the previous frame's active canvas if still
+            //    among the plane hits. Prevents mid-drag teleport to head-locked canvases.
+            if (LastActiveCanvas != null)
+            {
+                foreach (var (dist, canvas, worldPt, localPt) in candidates)
+                {
+                    if (canvas == LastActiveCanvas)
+                    {
+                        hit = new CanvasHit(canvas, worldPt, localPt, dist, false);
+                        return true;
+                    }
+                }
+            }
+
+            // 3. Fallback to closest candidate whose rect actually contains the hit point.
+            //    RaycastCanvasPlanes uses infinite planes, so "closest plane" without rect
+            //    checking can snap to the off-panel extension of a head-locked quad.
+            foreach (var (dist, canvas, worldPt, localPt) in candidates)
+            {
+                var rt = canvas.GetComponent<RectTransform>();
+                if (rt != null && rt.rect.Contains(localPt))
+                {
+                    hit = new CanvasHit(canvas, worldPt, localPt, dist, false);
+                    return true;
+                }
+            }
+
+            // 4. Last resort: return the closest plane anyway (cursor still visible).
+            var first = candidates[0];
+            hit = new CanvasHit(first.canvas, first.worldPoint, first.localPoint, first.distance, false);
             return true;
         }
 
         private static bool HasGraphicAtPoint(Canvas canvas, Vector2 localPoint)
         {
             var raycaster = canvas.GetComponent<GraphicRaycaster>();
+            if (raycaster == null)
+            {
+                // Nested canvases may not have their own GraphicRaycaster —
+                // the root canvas's raycaster covers the entire hierarchy.
+                var root = canvas.rootCanvas;
+                if (root != null && root != canvas)
+                    raycaster = root.GetComponent<GraphicRaycaster>();
+            }
             if (raycaster == null) return false;
 
             var camera = canvas.worldCamera;
+            if (camera == null)
+            {
+                // Nested canvas inherits worldCamera from root.
+                var root = canvas.rootCanvas;
+                if (root != null)
+                    camera = root.worldCamera;
+            }
             if (camera == null) return false;
 
             Vector3 worldPoint = canvas.transform.TransformPoint(localPoint);
