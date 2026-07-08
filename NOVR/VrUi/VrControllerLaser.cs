@@ -34,6 +34,7 @@ namespace NOVR.VrUi
         }
 
         private int _lastLaserLogFrame;
+        private float _nextSpaceDebugTime;
 
         private void Update()
         {
@@ -86,6 +87,24 @@ namespace NOVR.VrUi
             {
                 Debug.Log($"[VrControllerLaser] Laser enabled: ctrlPos={controllerPos:F3} cursorPos={cursorPos:F3} dist={distance:F3} gotHand={gotHand}");
                 _lastLaserLogFrame = Time.frameCount;
+            }
+
+            // Space-frame debug: log controller pose + head/camera pose once per second
+            if (Time.unscaledTime >= _nextSpaceDebugTime)
+            {
+                _nextSpaceDebugTime = Time.unscaledTime + 1f;
+                Vector3 headPos = NOVRHeadsetData.Translation;
+                Quaternion headRot = NOVRHeadsetData.Rotation;
+                Vector3 camWorldPos = cam.transform.position;
+                Vector3 delta = controllerPos - camWorldPos;
+                Debug.Log(
+                    $"[VrControllerLaser SpaceDebug] " +
+                    $"ctrl(InputSys)={controllerPos:F3} " +
+                    $"head(NOVRData)={headPos:F3} " +
+                    $"camWorld={camWorldPos:F3} " +
+                    $"ctrl-cam={delta:F3} " +
+                    $"headRotEuler={headRot.eulerAngles:F1} " +
+                    $"ctrlRotEuler={handRot.eulerAngles:F1}");
             }
         }
     }

@@ -46,6 +46,9 @@ public class VrUiCursor: NOVRBehaviour
     private static readonly Color CursorNormalColor = new Color32(100, 200, 100, 255);
     private static readonly Color CursorHoverColor = new Color32(155, 255, 175, 255);
     private static readonly Color CursorPressedColor = new Color32(255, 224, 92, 255);
+    private static readonly Color CursorMouseNormalColor = new Color32(110, 180, 240, 255);
+    private static readonly Color CursorMouseHoverColor = new Color32(170, 215, 255, 255);
+    private static readonly Color CursorMousePressedColor = new Color32(255, 180, 220, 255);
     private GameObject? _cursor;
     private RectTransform? _cursorRectTransform;
     private Canvas? _cursorCanvas;
@@ -77,6 +80,23 @@ public class VrUiCursor: NOVRBehaviour
     private bool _triggerWasPressed;
     private Vector3 _controllerOrigin;
     private Quaternion _controllerRotation;
+
+    // Throttled diagnostic logging
+    private float _lastDiagLogTime = -100f;
+    private const float DiagLogInterval = 1f;
+    private static int _diagFrameCounter;
+
+    // Runtime input mode override — set by CheckModeToggleRequests() in response
+    // to a mouse left-click (→ Mouse) or controller trigger press (→ Controller).
+    // When _runtimeMode == Auto the config-driven default is used.
+    public enum RuntimeInputMode { Auto, Mouse, Controller }
+    private RuntimeInputMode _runtimeMode = RuntimeInputMode.Auto;
+
+    // Angular dead-zone for controller ray — suppresses cursor movement when the
+    // ray direction changes by less than this threshold, killing idle shimmer.
+    private const float ControllerDeadZoneDegrees = 0.3f;
+    private Vector3 _lastControllerRayLocalDir;
+    private bool _hasLastControllerRay;
 
     // Direct pointer event state
     private PointerEventData? _pointerEventData;
@@ -124,6 +144,13 @@ public class VrUiCursor: NOVRBehaviour
 
     public bool IsControllerModeActive => _controllerModeActive;
 
+    public RuntimeInputMode RuntimeMode => _runtimeMode;
+
+    public void SetRuntimeMode(RuntimeInputMode mode)
+    {
+        _runtimeMode = mode;
+    }
+
     public void SetProjectionReferenceRotation(Quaternion referenceRotation)
     {
         _projectionReferenceRotation = referenceRotation;
@@ -162,13 +189,40 @@ public class VrUiCursor: NOVRBehaviour
         UpdateStandardUIModuleState();
         if (_texture == null) return;
 
+        CheckModeToggleRequests();
+
         // Determine input mode
         string modeSetting = ModConfiguration.Instance.CursorInputMode.Value;
         bool controllerAvailable = VrControllerInput.TryGetDominantHand(
             out _controllerOrigin, out _controllerRotation, out _triggerIsPressed);
 
-        bool useController = modeSetting == "Controller" ||
-                             (modeSetting == "Auto" && controllerAvailable);
+        bool useController;
+        if (_runtimeMode == RuntimeInputMode.Controller)
+        {
+            useController = true;
+        }
+        else if (_runtimeMode == RuntimeInputMode.Mouse)
+        {
+            useController = false;
+        }
+        else
+        {
+            useController = modeSetting == "Controller" ||
+                            (modeSetting == "Auto" && controllerAvailable);
+        }
+
+        // Throttled diagnostic — show current mode + pose state once per second
+        float diagNow = Time.unscaledTime;
+        if (diagNow - _lastDiagLogTime > DiagLogInterval)
+        {
+            _lastDiagLogTime = diagNow;
+            string branch = (useController && controllerAvailable) ? "CONTROLLER" : "MOUSE";
+            string cursorPosStr = (_cursor != null) ? _cursor.transform.position.ToString() : "<null>";
+            string cursorActiveStr = (_cursor != null) ? _cursor.activeSelf.ToString() : "<null>";
+            string msg = $"[VrUiCursor] mode='{modeSetting}' runtime={_runtimeMode} ctrlAvail={controllerAvailable} branch={branch} ctrlPos={_controllerOrigin} cursorPos={cursorPosStr} cursorActive={cursorActiveStr} trigger={_triggerIsPressed} _hasActiveCanvas={_hasActiveCanvas}";
+            if (NOVRPlugin.LogSource != null) NOVRPlugin.LogSource.LogMessage(msg);
+            else Debug.Log(msg);
+        }
 
         if (useController && controllerAvailable)
         {
@@ -204,7 +258,10 @@ public class VrUiCursor: NOVRBehaviour
             UpdateCursorAnimation(triggerDownThisFrame, _triggerIsPressed);
 
             if (triggerDownThisFrame)
+            {
                 LogRaycastAtCursor();
+                ForwardMapClickIfNeeded();
+            }
 
             _triggerWasPressed = _triggerIsPressed;
         }
@@ -247,6 +304,24 @@ public class VrUiCursor: NOVRBehaviour
                 LogRaycastAtCursor();
                 ForwardMapClickIfNeeded();
             }
+        }
+    }
+
+    private void CheckModeToggleRequests()
+    {
+        if (_realMouse != null && _realMouse.leftButton.wasPressedThisFrame
+            && _runtimeMode != RuntimeInputMode.Mouse)
+        {
+            _runtimeMode = RuntimeInputMode.Mouse;
+            return;
+        }
+
+        bool triggerPressedThisFrame =
+            VrControllerInput.GetTriggerWasPressedThisFrame(XRNode.RightHand) ||
+            VrControllerInput.GetTriggerWasPressedThisFrame(XRNode.LeftHand);
+        if (triggerPressedThisFrame && _runtimeMode != RuntimeInputMode.Controller)
+        {
+            _runtimeMode = RuntimeInputMode.Controller;
         }
     }
 
@@ -472,13 +547,34 @@ public class VrUiCursor: NOVRBehaviour
             return;
 
         if (!_cursor.activeSelf)
+        {
             _cursor.SetActive(true);
+            _hasLastControllerRay = false;
+        }
 
-        Ray probeRay = new Ray(_controllerOrigin, _controllerRotation * Vector3.forward);
+        Vector3 localDir = _controllerRotation * Vector3.forward;
+        Ray probeRay = new Ray(_controllerOrigin, localDir);
         _lastProbeRay = probeRay;
 
         if (VrCanvasHitTester.RaycastCanvasPlanes(probeRay, out var hit))
         {
+            // Angular dead-zone: suppress cursor update when the ray direction
+            // hasn't moved enough, preventing idle jitter from shifting the cursor.
+            if (_hasLastControllerRay)
+            {
+                float angleDeg = Vector3.Angle(_lastControllerRayLocalDir, localDir);
+                if (angleDeg < ControllerDeadZoneDegrees)
+                {
+                    // Keep previous cursor position and canvas, but still update
+                    // the probe ray for the laser visual.
+                    _lastControllerRayLocalDir = localDir;
+                    // return; // DISABLED: dead-zone + OneEuro filter kept deltas < 0.3 deg/frame, pinning cursor
+                }
+            }
+
+            _hasLastControllerRay = true;
+            _lastControllerRayLocalDir = localDir;
+
             _activeCanvas = hit.Canvas;
             _hasActiveCanvas = true;
             _lastCanvasName = hit.Canvas.name;
@@ -496,6 +592,7 @@ public class VrUiCursor: NOVRBehaviour
             VrCanvasHitTester.LastActiveCanvas = null;
             _lastCanvasName = "(none)";
             _cursor.SetActive(false);
+            _hasLastControllerRay = false;
         }
     }
 
@@ -585,6 +682,15 @@ public class VrUiCursor: NOVRBehaviour
         if (isPressed)
         {
             targetColor = CursorPressedColor;
+        }
+        if (_runtimeMode == RuntimeInputMode.Mouse)
+        {
+            if (isPressed)
+                targetColor = CursorMousePressedColor;
+            else if (_cursorOverInteractive)
+                targetColor = CursorMouseHoverColor;
+            else
+                targetColor = CursorMouseNormalColor;
         }
 
         _cursorImage.color = Color.Lerp(_cursorImage.color, targetColor, Time.unscaledDeltaTime * CursorAnimationLerpSpeed);
