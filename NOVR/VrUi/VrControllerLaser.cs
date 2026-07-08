@@ -10,9 +10,15 @@ namespace NOVR.VrUi
         private const float LaserWidth = 0.002f;
         private const float LaserMaxDistance = 50f;
 
+        private static int _instanceCount;
+        private int _instanceId;
+
         protected override void Awake()
         {
             base.Awake();
+            _instanceId = ++_instanceCount;
+            if (NOVRPlugin.LogSource != null)
+                NOVRPlugin.LogSource.LogMessage($"[VrControllerLaser] Awake instance={_instanceId} name={name} parent={(transform.parent != null ? transform.parent.name : "<none>")} active={gameObject.activeInHierarchy}");
             CreateLaser();
         }
 
@@ -35,16 +41,51 @@ namespace NOVR.VrUi
 
         private int _lastLaserLogFrame;
         private float _nextSpaceDebugTime;
+        private int _updateCounter;
 
         private void Update()
         {
+            _updateCounter++;
+
+            // Periodic instance count diagnostic
+            if (_updateCounter % 120 == 0)
+            {
+                int laserCount = FindObjectsOfType<VrControllerLaser>().Length;
+                int cursorCount = FindObjectsOfType<VrUiCursor>().Length;
+                int nouiCount = FindObjectsOfType<NOUIManager>().Length;
+                int coreCount = FindObjectsOfType<Core>().Length;
+                var allLineRenderers = Resources.FindObjectsOfTypeAll<LineRenderer>();
+                string lrInfo = "";
+                foreach (var lr in allLineRenderers)
+                {
+                    string parentChain = lr.transform.parent != null ? lr.transform.parent.name : "<none>";
+                    string grandparent = (lr.transform.parent != null && lr.transform.parent.parent != null) ? lr.transform.parent.parent.name : "<none>";
+                    lrInfo += $" [{lr.gameObject.name} parent={parentChain} gp={grandparent} enabled={lr.enabled} active={lr.gameObject.activeInHierarchy} scene={lr.gameObject.scene.name}]";
+                }
+                // Also look for GameObjects that might be creating ray visuals
+                var allEventSystems = Resources.FindObjectsOfTypeAll<GameObject>();
+                string esInfo = "";
+                int esCount = 0;
+                foreach (var go in allEventSystems)
+                {
+                    if (go.name.Contains("EventSystem") || go.name.Contains("Laser") || go.name.Contains("Ray") || go.name.Contains("Pointer") || go.name.Contains("Beam"))
+                    {
+                        esCount++;
+                        if (esCount <= 8)
+                            esInfo += $" [{go.name} active={go.activeInHierarchy} scene={go.scene.name}]";
+                    }
+                }
+                if (NOVRPlugin.LogSource != null)
+                    NOVRPlugin.LogSource.LogMessage($"[VrControllerLaser] Diag: VrControllerLaser={laserCount} VrUiCursor={cursorCount} NOUIManager={nouiCount} Core={coreCount} TotalLineRenderers={allLineRenderers.Length}{lrInfo} ES/Lazer={esCount}{esInfo} instance={_instanceId} update={_updateCounter}");
+            }
+
             var cursor = VrUiCursor.I;
             if (cursor == null || !cursor.IsActive || !cursor.IsControllerModeActive)
             {
                 if (_lineRenderer != null && _lineRenderer.enabled)
                 {
                     _lineRenderer.enabled = false;
-                    Debug.Log("[VrControllerLaser] Laser disabled: cursor null/inactive/mouse mode");
+                    Debug.Log($"[VrControllerLaser] Laser disabled instance={_instanceId}: cursor null/inactive/mouse mode");
                 }
                 return;
             }
@@ -55,7 +96,7 @@ namespace NOVR.VrUi
                 if (_lineRenderer != null && _lineRenderer.enabled)
                 {
                     _lineRenderer.enabled = false;
-                    Debug.Log("[VrControllerLaser] Laser disabled: CockpitHudCamera null");
+                    Debug.Log($"[VrControllerLaser] Laser disabled instance={_instanceId}: CockpitHudCamera null");
                 }
                 return;
             }
@@ -74,7 +115,7 @@ namespace NOVR.VrUi
             if (distance > LaserMaxDistance || distance < 0.01f)
             {
                 if (wasEnabled)
-                    Debug.Log($"[VrControllerLaser] Laser disabled: distance={distance:F3} outside valid range");
+                    Debug.Log($"[VrControllerLaser] Laser disabled instance={_instanceId}: distance={distance:F3} outside valid range");
                 _lineRenderer.enabled = false;
                 return;
             }
@@ -85,7 +126,7 @@ namespace NOVR.VrUi
 
             if (_lastLaserLogFrame != Time.frameCount)
             {
-                Debug.Log($"[VrControllerLaser] Laser enabled: ctrlPos={controllerPos:F3} cursorPos={cursorPos:F3} dist={distance:F3} gotHand={gotHand}");
+                Debug.Log($"[VrControllerLaser] Laser enabled instance={_instanceId}: ctrlPos={controllerPos:F3} cursorPos={cursorPos:F3} dist={distance:F3} gotHand={gotHand}");
                 _lastLaserLogFrame = Time.frameCount;
             }
 
@@ -98,7 +139,7 @@ namespace NOVR.VrUi
                 Vector3 camWorldPos = cam.transform.position;
                 Vector3 delta = controllerPos - camWorldPos;
                 Debug.Log(
-                    $"[VrControllerLaser SpaceDebug] " +
+                    $"[VrControllerLaser SpaceDebug] instance={_instanceId} " +
                     $"ctrl(InputSys)={controllerPos:F3} " +
                     $"head(NOVRData)={headPos:F3} " +
                     $"camWorld={camWorldPos:F3} " +

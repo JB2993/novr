@@ -33,10 +33,14 @@ public class Core : MonoBehaviour
         DontDestroyOnLoad(gameObject);
         gameObject.AddComponent<VrCameraManager>();
         gameObject.AddComponent<APIBus>();
+        if (NOVRPlugin.LogSource != null)
+            NOVRPlugin.LogSource.LogMessage($"[Core Awake] New Core instance created. name={name}");
     }
 
     private void OnDestroy()
     {
+        if (NOVRPlugin.LogSource != null)
+            NOVRPlugin.LogSource.LogMessage("[Core OnDestroy] NOVR has been destroyed. This shouldn't have happened. Recreating...");
         Debug.Log("NOVR has been destroyed. This shouldn't have happened. Recreating...");
         
         Create();

@@ -42,6 +42,8 @@ public class NOUIManager : NOVRBehaviour
     private void Start()
     {
         I = this;
+        if (NOVRPlugin.LogSource != null)
+            NOVRPlugin.LogSource.LogMessage($"[NOUIManager] Start called, creating children. parent={(transform.parent != null ? transform.parent.name : "<none>")}");
         Create<UIBehaviorPatcher>(transform);
         UIBehaviorPatcher.DoPatching();
         Create<VrUiCursor>(transform);

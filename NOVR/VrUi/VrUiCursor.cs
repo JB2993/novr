@@ -12,6 +12,8 @@ public class VrUiCursor: NOVRBehaviour
 {
     public static VrUiCursor? Instance { get; private set; }
     public static VrUiCursor? I => Instance;
+    private static int _instanceCount;
+    private int _instanceId;
 
     public bool IsActive => _cursor != null && _cursor.activeSelf;
     public Vector3 CursorPosition => _cursor != null ? _cursor.transform.position : Vector3.zero;
@@ -19,7 +21,13 @@ public class VrUiCursor: NOVRBehaviour
     protected override void Awake()
     {
         base.Awake();
+        _instanceId = ++_instanceCount;
+        if (Instance != null && Instance != this)
+            if (NOVRPlugin.LogSource != null)
+                NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] WARNING: Instance already set (id={Instance._instanceId}), overwriting with new instance id={_instanceId}");
         Instance = this;
+        if (NOVRPlugin.LogSource != null)
+            NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] Awake id={_instanceId} name={name} parent={(transform.parent != null ? transform.parent.name : "<none>")}");
     }
 
     private void OnDestroy()
@@ -27,6 +35,8 @@ public class VrUiCursor: NOVRBehaviour
         if (Instance == this)
         {
             Instance = null;
+            if (NOVRPlugin.LogSource != null)
+                NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] OnDestroy id={_instanceId}");
         }
     }
 
@@ -166,6 +176,8 @@ public class VrUiCursor: NOVRBehaviour
     private void Start()
     {
         _texture = CreateCursorTexture();
+        if (NOVRPlugin.LogSource != null)
+            NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] Start id={_instanceId}");
     }
 
     private void Update()
@@ -183,7 +195,7 @@ public class VrUiCursor: NOVRBehaviour
                 $"[{nameof(VrUiCursor)}] Unity InputSystem could not find an active hardware Mouse device during initialization.");
         }
 
-        if (Time.frameCount < 120)
+        if (Time.frameCount < 120 || Time.frameCount % 120 == 0)
             DisableStandardUIModule();
 
         UpdateStandardUIModuleState();
@@ -450,7 +462,8 @@ public class VrUiCursor: NOVRBehaviour
         _standaloneInputModule = FindObjectOfType<StandaloneInputModule>();
         if (_standaloneInputModule != null)
         {
-            Debug.Log($"[NOVR] Disabling {_standaloneInputModule.GetType().Name} so VR cursor drives UI exclusively.");
+            if (NOVRPlugin.LogSource != null)
+                NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] Disabling StandaloneInputModule (enabled={_standaloneInputModule.enabled}) on {_standaloneInputModule.gameObject.name}");
             _standaloneInputModule.enabled = false;
             foundAny = true;
         }
@@ -458,14 +471,16 @@ public class VrUiCursor: NOVRBehaviour
         _inputSystemUIInputModule = FindObjectOfType<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
         if (_inputSystemUIInputModule != null)
         {
-            Debug.Log($"[NOVR] Disabling {_inputSystemUIInputModule.GetType().Name} so VR cursor drives UI exclusively.");
+            if (NOVRPlugin.LogSource != null)
+                NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] Disabling InputSystemUIInputModule (enabled={_inputSystemUIInputModule.enabled}) on {_inputSystemUIInputModule.gameObject.name}");
             _inputSystemUIInputModule.enabled = false;
             foundAny = true;
         }
 
         if (!foundAny)
         {
-            Debug.LogWarning("[NOVR] No UI InputModule found in scene yet, retrying next frame...");
+            if (NOVRPlugin.LogSource != null)
+                NOVRPlugin.LogSource.LogMessage("[VrUiCursor] No UI InputModule found in scene, retrying...");
         }
         return foundAny;
     }
