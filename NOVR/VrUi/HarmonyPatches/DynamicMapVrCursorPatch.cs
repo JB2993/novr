@@ -1,7 +1,7 @@
+using System;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.EventSystems;
-using System;
 using System.Collections.Generic;
 
 namespace NOVR.VrUi.HarmonyPatches;
@@ -10,113 +10,6 @@ namespace NOVR.VrUi.HarmonyPatches;
 // and waypoint line/marker formatting to work with the 3D VR laser pointer in cockpit space.
 internal static class DynamicMapVrCursorPatch
 {
-    // Checks if a map icon is valid, active, and eligible for selection.
-    private static bool IsSelectableMapIcon(global::MapIcon? mapIcon)
-    {
-        if (mapIcon == null ||
-            !mapIcon.gameObject.activeInHierarchy ||
-            mapIcon.iconImage == null ||
-            !mapIcon.iconImage.raycastTarget)
-        {
-            return false;
-        }
-
-        if (mapIcon is global::UnitMapIcon unitMapIcon)
-        {
-            if (unitMapIcon.unit == null) return false;
-            
-            if (global::SceneSingleton<global::TargetListSelector>.i != null &&
-                global::SceneSingleton<global::TargetListSelector>.i.CheckExclusions(unitMapIcon.unit))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    // Patches map item selection to use VR cursor positions and camera space raycasting.
-    [HarmonyPatch(typeof(global::DynamicMap), "SelectFromMap")]
-    private static class SelectFromMapPatch
-    {
-        // Attempts an EventSystem raycast at the VR cursor's screen point,
-        // falling back to clicking the closest icon within a screen distance threshold.
-        [HarmonyPrefix]
-        private static bool Prefix(global::DynamicMap __instance)
-        {
-            var cursor = VrUiCursor.I;
-            if (cursor != null && cursor.IsActive)
-            {
-                var camera = APIBus.CockpitHudCamera;
-                if (camera == null) return true;
-
-                // VR-only: if no canvas is under the cursor ray, no map icon can be selected.
-                // Return false to suppress the flat-screen SelectFromMap logic (which would
-                // produce incorrect results in VR).
-                Ray cursorRay = new Ray(camera.transform.position,
-                    (cursor.CursorPosition - camera.transform.position).normalized);
-
-                if (!VrCanvasHitTester.RaycastCanvases(cursorRay, out _))
-                {
-                    return false;
-                }
-
-                // Calculate screen point exactly in the VR camera's screen/viewport space
-                // to match the coordinate system of iconWorldPositions projected via the same camera.
-                var cursorScreenPoint = (Vector2)camera.WorldToScreenPoint(cursor.CursorPosition);
-
-                // 1. Try EventSystem raycast first (exact hit test)
-                var eventSystem = EventSystem.current;
-                if (eventSystem != null)
-                {
-                    var pointerEventData = new PointerEventData(eventSystem)
-                    {
-                        position = cursorScreenPoint
-                    };
-                    var results = new List<RaycastResult>();
-                    eventSystem.RaycastAll(pointerEventData, results);
-                    foreach (var result in results)
-                    {
-                        var icon = result.gameObject.GetComponentInParent<global::MapIcon>();
-                        if (IsSelectableMapIcon(icon))
-                        {
-                            icon.ClickIcon(global::MapIcon.ClickSource.Mouse);
-                            return false;
-                        }
-                    }
-                }
-
-                // 2. Fallback: Find closest selectable map icon in screen space
-                var icons = UnityEngine.Object.FindObjectsOfType<global::MapIcon>();
-                global::MapIcon? closestIcon = null;
-                float closestSqrDistance = float.MaxValue;
-                
-                foreach (var icon in icons)
-                {
-                    if (!IsSelectableMapIcon(icon)) continue;
-                    
-                    Vector3 iconWorldPosition = icon.transform.position;
-                    Vector2 iconScreenPoint = camera.WorldToScreenPoint(iconWorldPosition);
-                    
-                    float sqrDistance = (iconScreenPoint - cursorScreenPoint).sqrMagnitude;
-                    if (sqrDistance < closestSqrDistance)
-                    {
-                        closestSqrDistance = sqrDistance;
-                        closestIcon = icon;
-                    }
-                }
-                
-                if (closestIcon != null && closestSqrDistance <= 10000f)
-                {
-                    closestIcon.ClickIcon(global::MapIcon.ClickSource.Mouse);
-                }
-                
-                return false;
-            }
-            return true;
-        }
-    }
-
     // Patches map boundary checking to project VR cursor onto the map background RectTransform.
     [HarmonyPatch(typeof(global::DynamicMap), "IsCursorInMapRectangle")]
     private static class IsCursorInMapRectanglePatch

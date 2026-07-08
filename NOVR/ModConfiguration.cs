@@ -15,6 +15,7 @@ public class ModConfiguration
     public readonly ConfigEntry<float> NativeMenuScale;
     public readonly ConfigEntry<float> NativeMenuDistance;
     public readonly ConfigEntry<float> NativeMenuHeightOffset;
+    public readonly ConfigEntry<string> CursorInputMode;
 
     public ModConfiguration(ConfigFile config)
     {
@@ -50,5 +51,11 @@ public class ModConfiguration
             "Native Menu Height Offset",
             0.0f,
             "Vertical offset in meters applied when NOVR's native VR menu UI is opened or recentered. Values from -0.25 to 1.0 are supported.");
+
+        CursorInputMode = config.Bind(
+            "Experimental",
+            "Cursor Input Mode",
+            "Auto",
+            "Selects input source for the VR UI cursor. 'Auto' = use controller if tracked, else mouse. 'Mouse' = always use mouse. 'Controller' = always use controller ray.");
     }
 }

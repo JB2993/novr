@@ -45,6 +45,7 @@ public class NOUIManager : NOVRBehaviour
         Create<UIBehaviorPatcher>(transform);
         UIBehaviorPatcher.DoPatching();
         Create<VrUiCursor>(transform);
+        Create<VrControllerLaser>(transform);
         Create<NativeVrUiRoot>(transform);
         ConfigureUiCameras();
     }

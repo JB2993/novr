@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using UnityEngine.XR;
 
 namespace NOVR.VrUi;
 
@@ -70,6 +71,13 @@ public class VrUiCursor: NOVRBehaviour
     private float _feedProjM00, _feedProjM11, _feedProjM02, _feedProjM12;
     private Vector3 _feedCursorWorldPos;
 
+    // Controller input mode
+    private bool _controllerModeActive;
+    private bool _triggerIsPressed;
+    private bool _triggerWasPressed;
+    private Vector3 _controllerOrigin;
+    private Quaternion _controllerRotation;
+
     // Direct pointer event state
     private PointerEventData? _pointerEventData;
     private GameObject? _hovered;
@@ -114,6 +122,8 @@ public class VrUiCursor: NOVRBehaviour
             Mathf.Clamp(screenPoint.y, 0f, camera.pixelHeight));
     }
 
+    public bool IsControllerModeActive => _controllerModeActive;
+
     public void SetProjectionReferenceRotation(Quaternion referenceRotation)
     {
         _projectionReferenceRotation = referenceRotation;
@@ -136,21 +146,10 @@ public class VrUiCursor: NOVRBehaviour
         if (!Application.isFocused)
         {
             if (_cursor != null && _cursor.activeSelf)
-            {
                 _cursor.SetActive(false);
-            }
             return;
         }
 
-        if (!IsRealCursorVisible()) // This means we don't have to manually show and hide it every game update
-        {
-            if (_cursor != null)
-            {
-                _cursor.SetActive(false);
-            }
-            return;
-        }
-        
         if (_realMouse == null)
         {
             _realMouse = Mouse.current ?? throw new System.InvalidOperationException(
@@ -158,44 +157,96 @@ public class VrUiCursor: NOVRBehaviour
         }
 
         if (Time.frameCount < 120)
-        {
             DisableStandardUIModule();
-        }
-        // When the original game's control mapper opens (rendered as 2D screen, not in VR),
-        // re-enable standard UI input modules so the original game's UI receives mouse clicks.
+
         UpdateStandardUIModuleState();
         if (_texture == null) return;
-        UpdateCursorAngles();
-        
-        var realMouse = _realMouse;
-        if (realMouse == null) return;
 
-        Vector2 screenPoint = GetScreenPoint();
-        if (!_isOffscreen)
+        // Determine input mode
+        string modeSetting = ModConfiguration.Instance.CursorInputMode.Value;
+        bool controllerAvailable = VrControllerInput.TryGetDominantHand(
+            out _controllerOrigin, out _controllerRotation, out _triggerIsPressed);
+
+        bool useController = modeSetting == "Controller" ||
+                             (modeSetting == "Auto" && controllerAvailable);
+
+        if (useController && controllerAvailable)
         {
-            // Snapshot A — stamp feed-time state for the paired diagnostic
-            _feedFrame = Time.frameCount;
-            _feedScreenPoint = screenPoint;
-            _feedCursorWorldPos = _cursor != null ? _cursor.transform.position : Vector3.zero;
-            var snapCam = UiCamera;
-            if (snapCam != null)
+            _controllerModeActive = true;
+            _triggerWasPressed = _triggerIsPressed && !_triggerWasPressed;
+
+            // Use trigger was-pressed tracking for animation
+            bool triggerDownThisFrame = VrControllerInput.GetTriggerWasPressedThisFrame(
+                XRNode.RightHand) || VrControllerInput.GetTriggerWasPressedThisFrame(
+                XRNode.LeftHand);
+
+            UpdateCursorAnglesFromController();
+
+            Vector2 screenPoint = GetScreenPoint();
+            if (!_isOffscreen)
             {
-                _feedCameraPos = snapCam.transform.position;
-                _feedCameraRot = snapCam.transform.rotation;
-                var p = snapCam.projectionMatrix;
-                _feedProjM00 = p.m00; _feedProjM11 = p.m11;
-                _feedProjM02 = p.m02; _feedProjM12 = p.m12;
+                _feedFrame = Time.frameCount;
+                _feedScreenPoint = screenPoint;
+                _feedCursorWorldPos = _cursor != null ? _cursor.transform.position : Vector3.zero;
+                var snapCam = UiCamera;
+                if (snapCam != null)
+                {
+                    _feedCameraPos = snapCam.transform.position;
+                    _feedCameraRot = snapCam.transform.rotation;
+                    var p = snapCam.projectionMatrix;
+                    _feedProjM00 = p.m00; _feedProjM11 = p.m11;
+                    _feedProjM02 = p.m02; _feedProjM12 = p.m12;
+                }
+
+                FirePointerEvents(screenPoint, _triggerIsPressed);
             }
 
-            // Direct pointer events via GraphicRaycaster + ExecuteEvents
-            FirePointerEvents(screenPoint, realMouse.leftButton.isPressed);
+            UpdateCursorAnimation(triggerDownThisFrame, _triggerIsPressed);
+
+            if (triggerDownThisFrame)
+                LogRaycastAtCursor();
+
+            _triggerWasPressed = _triggerIsPressed;
         }
-
-        UpdateCursorAnimation(realMouse);
-
-        if (realMouse.leftButton.wasPressedThisFrame)
+        else
         {
-            LogRaycastAtCursor();
+            _controllerModeActive = false;
+            if (!IsRealCursorVisible())
+            {
+                if (_cursor != null)
+                    _cursor.SetActive(false);
+                return;
+            }
+
+            UpdateCursorAngles();
+            var realMouse = _realMouse;
+            if (realMouse == null) return;
+
+            Vector2 screenPoint = GetScreenPoint();
+            if (!_isOffscreen)
+            {
+                _feedFrame = Time.frameCount;
+                _feedScreenPoint = screenPoint;
+                _feedCursorWorldPos = _cursor != null ? _cursor.transform.position : Vector3.zero;
+                var snapCam = UiCamera;
+                if (snapCam != null)
+                {
+                    _feedCameraPos = snapCam.transform.position;
+                    _feedCameraRot = snapCam.transform.rotation;
+                    var p = snapCam.projectionMatrix;
+                    _feedProjM00 = p.m00; _feedProjM11 = p.m11;
+                    _feedProjM02 = p.m02; _feedProjM12 = p.m12;
+                }
+                FirePointerEvents(screenPoint, realMouse.leftButton.isPressed);
+            }
+
+            UpdateCursorAnimation(realMouse.leftButton.wasPressedThisFrame, realMouse.leftButton.isPressed);
+
+            if (realMouse.leftButton.wasPressedThisFrame)
+            {
+                LogRaycastAtCursor();
+                ForwardMapClickIfNeeded();
+            }
         }
     }
 
@@ -411,6 +462,43 @@ public class VrUiCursor: NOVRBehaviour
         }
     }
 
+    private void UpdateCursorAnglesFromController()
+    {
+        var camera = UiCamera;
+        if (camera == null) return;
+
+        EnsureCursorCanvas(camera);
+        if (_cursor == null || _cursorRectTransform == null)
+            return;
+
+        if (!_cursor.activeSelf)
+            _cursor.SetActive(true);
+
+        Ray probeRay = new Ray(_controllerOrigin, _controllerRotation * Vector3.forward);
+        _lastProbeRay = probeRay;
+
+        if (VrCanvasHitTester.RaycastCanvasPlanes(probeRay, out var hit))
+        {
+            _activeCanvas = hit.Canvas;
+            _hasActiveCanvas = true;
+            _lastCanvasName = hit.Canvas.name;
+            _lastCursorTargetPos = hit.WorldPoint;
+            VrCanvasHitTester.LastActiveCanvas = hit.Canvas;
+
+            _cursor.transform.position = hit.WorldPoint;
+            var rt = hit.Canvas.GetComponent<RectTransform>();
+            _cursor.transform.rotation = Quaternion.LookRotation(rt.forward, rt.up);
+        }
+        else
+        {
+            _hasActiveCanvas = false;
+            _activeCanvas = null;
+            VrCanvasHitTester.LastActiveCanvas = null;
+            _lastCanvasName = "(none)";
+            _cursor.SetActive(false);
+        }
+    }
+
     private Quaternion GetProjectionReferenceRotation()
     {
         if (_hasProjectionReferenceOverride)
@@ -461,16 +549,15 @@ public class VrUiCursor: NOVRBehaviour
     }
 
     
-    private void UpdateCursorAnimation(Mouse realMouse)
+    private void UpdateCursorAnimation(bool wasPressed, bool isPressed)
     {
         if (_cursor == null || _cursorImage == null) return;
 
-        if (realMouse.leftButton.wasPressedThisFrame)
+        if (wasPressed)
         {
             _lastCursorClickTime = Time.unscaledTime;
         }
 
-        var isPressed = realMouse.leftButton.isPressed;
         var idlePulse = Mathf.Sin(Time.unscaledTime * CursorIdlePulseSpeed) * CursorIdlePulseScale;
         var clickProgress = Mathf.Clamp01((Time.unscaledTime - _lastCursorClickTime) / CursorClickPulseDuration);
         var clickPulse = clickProgress < 1f
@@ -649,6 +736,14 @@ public class VrUiCursor: NOVRBehaviour
         lines.Add($"EventRoot: {(_hovered != null ? GetEventRoot(_hovered)?.name ?? "(null)" : "(null)")}");
         lines.Add($"PointerPress: {(_pointerPress != null ? _pointerPress.name : "(null)")}");
         lines.Add($"WasLeftDown: {_wasLeftDown}");
+        if (_controllerModeActive)
+        {
+            lines.Add("--- Controller Input ---");
+            lines.Add($"ControllerOrigin: {_controllerOrigin:F3}");
+            lines.Add($"ControllerRotation: {_controllerRotation.eulerAngles:F3}");
+            lines.Add($"ControllerDirection: {(_controllerRotation * Vector3.forward):F3}");
+            lines.Add($"TriggerPressed: {_triggerIsPressed}");
+        }
         var stdM = FindObjectOfType<StandaloneInputModule>();
         var ism = FindObjectOfType<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
         lines.Add($"StandaloneInputModule: {(stdM != null ? (stdM.enabled ? "enabled" : "disabled") : "not found")}");
@@ -729,38 +824,45 @@ public class VrUiCursor: NOVRBehaviour
         }
 
         // === DynamicMap diagnostics ===
+        try
         {
-            var dynamicMap = SceneSingleton<global::DynamicMap>.i;
+            var dynamicMap = Object.FindObjectOfType<global::DynamicMap>();
             if (dynamicMap != null)
             {
                 lines.Add("");
                 lines.Add("--- DynamicMap ---");
+                var registeredCanvases = VrCanvasHitTester.GetRegisteredCanvases();
                 if (dynamicMap.mapImage != null)
                 {
-                    var img = dynamicMap.mapImage.GetComponent<Image>();
-                    var owningCanvas = dynamicMap.mapImage.canvas;
-                    bool isRegistered = owningCanvas != null && VrCanvasHitTester.GetRegisteredCanvases().Contains(owningCanvas);
-                    lines.Add($"mapImage.raycastTarget: {dynamicMap.mapImage.raycastTarget}");
-                    lines.Add($"mapImage.canvas.name: \"{owningCanvas?.name ?? "null"}\"");
-                    lines.Add($"mapImage.canvas.hasGraphicRaycaster: {owningCanvas?.GetComponent<GraphicRaycaster>() != null}");
-                    lines.Add($"mapImage.canvas.isRegistered: {isRegistered}");
-                    lines.Add($"mapImage.canvas.renderMode: {owningCanvas?.renderMode}");
-                    lines.Add($"mapImage.canvas.worldCamera: {owningCanvas?.worldCamera?.name ?? "null"}");
+                    var mapImg = dynamicMap.mapImage.GetComponent<Image>();
+                    if (mapImg != null)
+                    {
+                        var owningCanvas = mapImg.canvas;
+                        bool isRegistered = owningCanvas != null && System.Linq.Enumerable.Contains(registeredCanvases, owningCanvas);
+                        lines.Add($"mapImage.raycastTarget: {mapImg.raycastTarget}");
+                        lines.Add($"mapImage.canvas.name: \"{owningCanvas?.name ?? "null"}\"");
+                        lines.Add($"mapImage.canvas.hasGraphicRaycaster: {owningCanvas?.GetComponent<GraphicRaycaster>() != null}");
+                        lines.Add($"mapImage.canvas.isRegistered: {isRegistered}");
+                        lines.Add($"mapImage.canvas.renderMode: {owningCanvas?.renderMode}");
+                        lines.Add($"mapImage.canvas.worldCamera: {owningCanvas?.worldCamera?.name ?? "null"}");
+                    }
                 }
                 if (dynamicMap.mapBackground != null)
                 {
-                    lines.Add($"mapBackground.raycastTarget: {dynamicMap.mapBackground.raycastTarget}");
+                    var bgImg = dynamicMap.mapBackground.GetComponent<Image>();
+                    if (bgImg != null)
+                        lines.Add($"mapBackground.raycastTarget: {bgImg.raycastTarget}");
                 }
                 var dynCanvas = dynamicMap.GetComponent<Canvas>();
                 if (dynCanvas != null)
                 {
-                    bool dynIsRegistered = VrCanvasHitTester.GetRegisteredCanvases().Contains(dynCanvas);
+                    bool dynIsRegistered = System.Linq.Enumerable.Contains(registeredCanvases, dynCanvas);
                     lines.Add($"DynamicMap own Canvas: {dynCanvas.name} registered={dynIsRegistered} worldCamera={dynCanvas.worldCamera?.name ?? "null"}");
                 }
                 var dynCanvasInParent = dynamicMap.GetComponentInParent<Canvas>();
                 if (dynCanvasInParent != null && dynCanvasInParent != dynCanvas)
                 {
-                    bool parentIsRegistered = VrCanvasHitTester.GetRegisteredCanvases().Contains(dynCanvasInParent);
+                    bool parentIsRegistered = System.Linq.Enumerable.Contains(registeredCanvases, dynCanvasInParent);
                     lines.Add($"DynamicMap parent Canvas: {dynCanvasInParent.name} registered={parentIsRegistered}");
                 }
             }
@@ -768,6 +870,10 @@ public class VrUiCursor: NOVRBehaviour
             {
                 lines.Add("DynamicMap: not found");
             }
+        }
+        catch (System.Exception ex)
+        {
+            lines.Add($"DynamicMap diagnostics error: {ex.GetType().Name}: {ex.Message}");
         }
 
         lines.Add("");
@@ -786,5 +892,40 @@ public class VrUiCursor: NOVRBehaviour
         {
             Debug.LogError($"[VrUiCursor] Failed to write diagnostics: {ex}");
         }
+    }
+
+    private void ForwardMapClickIfNeeded()
+    {
+        if (_activeCanvas == null || !_hasActiveCanvas) return;
+        if (_activeCanvas.name != "MapCanvas") return;
+
+        var dynamicMap = Object.FindObjectOfType<global::DynamicMap>();
+        if (dynamicMap == null) return;
+
+        var camera = APIBus.CockpitHudCamera;
+        if (camera == null) return;
+
+        var cursorScreenPoint = GetScreenPoint();
+
+        var icons = UnityEngine.Object.FindObjectsOfType<global::MapIcon>();
+        global::MapIcon? closest = null;
+        float closestSqr = 10000f;
+
+        foreach (var icon in icons)
+        {
+            if (icon == null || !icon.gameObject.activeInHierarchy) continue;
+
+            Vector2 iconScreenPoint = camera.WorldToScreenPoint(icon.transform.position);
+            float sqr = (iconScreenPoint - cursorScreenPoint).sqrMagnitude;
+
+            if (sqr < closestSqr)
+            {
+                closestSqr = sqr;
+                closest = icon;
+            }
+        }
+
+        if (closest != null)
+            closest.ClickIcon(global::MapIcon.ClickSource.Mouse);
     }
 }
