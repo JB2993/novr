@@ -87,19 +87,33 @@ namespace NOVR.VrUi
 
             if (_rightValid)
             {
-                // DISABLED FOR TESTING: bypass OneEuro + EMA, use raw pose
-                // _filtRightRot = _rightRotFilter.Filter(_rawRightRot, dt);
-                // _filtRightPos = FilterPositionEma(_rawRightPos, _filtRightPos, dt);
-                _filtRightRot = _rawRightRot;
-                _filtRightPos = _rawRightPos;
+                if (_rightRotFilter == null)
+                {
+                    _rightRotFilter = new OneEuroQuaternionFilter(1.2f, 0.15f, 1f);
+                    _rightRotFilter.Reset(_rawRightRot);
+                    _filtRightRot = _rawRightRot;
+                    _filtRightPos = _rawRightPos;
+                }
+                else
+                {
+                    _filtRightRot = _rightRotFilter.Filter(_rawRightRot, dt);
+                    _filtRightPos = FilterPositionEma(_rawRightPos, _filtRightPos, dt);
+                }
             }
             if (_leftValid)
             {
-                // DISABLED FOR TESTING: bypass OneEuro + EMA, use raw pose
-                // _filtLeftRot = _leftRotFilter.Filter(_rawLeftRot, dt);
-                // _filtLeftPos = FilterPositionEma(_rawLeftPos, _filtLeftPos, dt);
-                _filtLeftRot = _rawLeftRot;
-                _filtLeftPos = _rawLeftPos;
+                if (_leftRotFilter == null)
+                {
+                    _leftRotFilter = new OneEuroQuaternionFilter(1.2f, 0.15f, 1f);
+                    _leftRotFilter.Reset(_rawLeftRot);
+                    _filtLeftRot = _rawLeftRot;
+                    _filtLeftPos = _rawLeftPos;
+                }
+                else
+                {
+                    _filtLeftRot = _leftRotFilter.Filter(_rawLeftRot, dt);
+                    _filtLeftPos = FilterPositionEma(_rawLeftPos, _filtLeftPos, dt);
+                }
             }
 
             // Refresh XR rig periodically
@@ -264,17 +278,21 @@ namespace NOVR.VrUi
 
             if (valid)
             {
+                // Position: controller at head-relative offset from tracking origin.
+                // Subtracting rawHeadPos removes the HMD height, so a controller at
+                // chest height IRL (trackingPos.y ≈ 0.8) appears at chest height
+                // in game rather than at eye-level + 0.8.
+                // Rotation: controller's own tracking orientation — not multiplied by
+                // rig rotation, so the ray direction does not follow the HMD / aircraft.
                 var rig = _xrRig;
                 if (rig != null)
                 {
-                    worldPosition = rig.TransformPoint(trackingPos);
-                    worldRotation = rig.rotation * trackingRot;
+                    worldPosition = rig.position + (trackingPos - _rawHeadPos);
+                    worldRotation = trackingRot;
                 }
                 else
                 {
-                    // Fallback: head-relative offset using cached head pose
-                    Vector3 offset = trackingPos - _rawHeadPos;
-                    worldPosition = cameraWorldPos + offset;
+                    worldPosition = cameraWorldPos + (trackingPos - _rawHeadPos);
                     worldRotation = trackingRot;
                 }
                 return true;
