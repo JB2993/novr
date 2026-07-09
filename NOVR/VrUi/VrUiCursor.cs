@@ -171,8 +171,18 @@ public class VrUiCursor: NOVRBehaviour
     {
         _hasProjectionReferenceOverride = false;
     }
-    
-    
+
+    // Routes a synthetic click to whatever the cursor is over, by reusing the
+    // proven left-click selection path (closest-icon lookup that ignores
+    // iconImage.raycastTarget). The EventSystem pointer pipeline approach
+    // doesn't work here because the game's MapIcon raycastTarget state doesn't
+    // match its visibility for hover-based icons in the map view.
+    public void SimulateLeftClick()
+    {
+        ForwardMapClickIfNeeded();
+    }
+
+
     private void Start()
     {
         _texture = CreateCursorTexture();
@@ -1016,7 +1026,7 @@ public class VrUiCursor: NOVRBehaviour
         }
     }
 
-    private void ForwardMapClickIfNeeded()
+    public void ForwardMapClickIfNeeded()
     {
         if (_activeCanvas == null || !_hasActiveCanvas) return;
         if (_activeCanvas.name != "MapCanvas") return;
