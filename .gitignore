@@ -397,3 +397,5 @@ dist/
 .agents/
 docs/superpowers/
 .deep-diff/
+skills-lock.json
+.kilo/plans/
