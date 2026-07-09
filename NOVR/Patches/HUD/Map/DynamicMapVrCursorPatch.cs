@@ -42,7 +42,7 @@ internal static class DynamicMapVrCursorPatch
     private static class SelectFromMapPatch
     {
         // Attempts an EventSystem raycast at the VR cursor's screen point,
-        // falling back to clicking the closest icon within a screen distance threshold.
+        // falling back to clicking the closest icon within a normalized distance threshold.
         [HarmonyPrefix]
         private static bool Prefix(global::DynamicMap __instance)
         {
@@ -52,11 +52,32 @@ internal static class DynamicMapVrCursorPatch
                 var camera = APIBus.CockpitHudCamera;
                 if (camera == null) return true;
 
+                var mapImage = __instance.mapImage;
+                if (mapImage == null) return true;
+                var mapImageRect = mapImage.GetComponent<RectTransform>();
+                if (mapImageRect == null) return true;
+
+                var rectSize = mapImageRect.rect.size;
+                if (rectSize.x < 1f || rectSize.y < 1f) return true;
+
                 // Calculate screen point exactly in the VR camera's screen/viewport space
                 // to match the coordinate system of iconWorldPositions projected via the same camera.
                 var cursorScreenPoint = (Vector2)camera.WorldToScreenPoint(cursor.CursorPosition);
+                if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                        mapImageRect, cursorScreenPoint, camera, out var cursorLocal))
+                {
+                    return false;
+                }
 
-                // 1. Try EventSystem raycast first (exact hit test)
+                // Normalized distance in map-image-local space is zoom/HUD/resolution independent
+                // because it cancels out the rect's own pixel size.
+                var cursorNorm = new Vector2(cursorLocal.x / rectSize.x, cursorLocal.y / rectSize.y);
+                float maxRadius = ModConfiguration.Instance != null
+                    ? ModConfiguration.Instance.MapClickMaxRadius.Value
+                    : 0.05f;
+                float maxRadiusSqr = maxRadius * maxRadius;
+
+                // 1. Try EventSystem raycast first (exact hit test), gated by normalized radius.
                 var eventSystem = EventSystem.current;
                 if (eventSystem != null)
                 {
@@ -69,7 +90,18 @@ internal static class DynamicMapVrCursorPatch
                     foreach (var result in results)
                     {
                         var icon = result.gameObject.GetComponentInParent<global::MapIcon>();
-                        if (IsSelectableMapIcon(icon))
+                        if (!IsSelectableMapIcon(icon)) continue;
+
+                        var iconScreenPoint = camera.WorldToScreenPoint(icon.transform.position);
+                        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                                mapImageRect, iconScreenPoint, camera, out var iconLocal))
+                        {
+                            continue;
+                        }
+
+                        var iconNorm = new Vector2(iconLocal.x / rectSize.x, iconLocal.y / rectSize.y);
+                        float sqr = (iconNorm - cursorNorm).sqrMagnitude;
+                        if (sqr <= maxRadiusSqr)
                         {
                             icon.ClickIcon(global::MapIcon.ClickSource.Mouse);
                             return false;
@@ -77,31 +109,36 @@ internal static class DynamicMapVrCursorPatch
                     }
                 }
 
-                // 2. Fallback: Find closest selectable map icon in screen space
+                // 2. Fallback: Find closest selectable map icon within the normalized radius.
                 var icons = UnityEngine.Object.FindObjectsOfType<global::MapIcon>();
                 global::MapIcon? closestIcon = null;
                 float closestSqrDistance = float.MaxValue;
-                
+
                 foreach (var icon in icons)
                 {
                     if (!IsSelectableMapIcon(icon)) continue;
-                    
-                    Vector3 iconWorldPosition = icon.transform.position;
-                    Vector2 iconScreenPoint = camera.WorldToScreenPoint(iconWorldPosition);
-                    
-                    float sqrDistance = (iconScreenPoint - cursorScreenPoint).sqrMagnitude;
+
+                    Vector2 iconScreenPoint = camera.WorldToScreenPoint(icon.transform.position);
+                    if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                            mapImageRect, iconScreenPoint, camera, out var iconLocal))
+                    {
+                        continue;
+                    }
+
+                    var iconNorm = new Vector2(iconLocal.x / rectSize.x, iconLocal.y / rectSize.y);
+                    float sqrDistance = (iconNorm - cursorNorm).sqrMagnitude;
                     if (sqrDistance < closestSqrDistance)
                     {
                         closestSqrDistance = sqrDistance;
                         closestIcon = icon;
                     }
                 }
-                
-                if (closestIcon != null && closestSqrDistance <= 10000f)
+
+                if (closestIcon != null && closestSqrDistance <= maxRadiusSqr)
                 {
                     closestIcon.ClickIcon(global::MapIcon.ClickSource.Mouse);
                 }
-                
+
                 return false;
             }
             return true;

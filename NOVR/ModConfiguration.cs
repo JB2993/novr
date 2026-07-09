@@ -25,6 +25,7 @@ public class ModConfiguration
     public readonly ConfigEntry<float> CockpitHeadRightOffset;
     public readonly ConfigEntry<KeyCode> RecenterShortcut;
     public readonly ConfigEntry<bool> SavePositionTrigger;
+    public readonly ConfigEntry<float> MapClickMaxRadius;
 
     private readonly Dictionary<string, (ConfigEntry<float> Forward, ConfigEntry<float> Right)> _perPlaneEntries = new();
 
@@ -110,6 +111,12 @@ public class ModConfiguration
             "Save Position For Current Aircraft",
             false,
             "Check this box to save the current Cockpit Head Forward/Right Offset values for the aircraft you're currently in. Automatically unchecks itself.");
+
+        MapClickMaxRadius = config.Bind(
+            "Map",
+            "Click Max Radius",
+            0.0375f,
+            "Maximum normalized distance from the VR cursor to a map icon for the icon to be selectable on click. Distance is measured as a fraction of the map image's smaller dimension, so it stays consistent regardless of zoom level, HUD scale, or HMD resolution. Values from 0.0 to 0.5 are supported.");
 
         SavePositionTrigger.SettingChanged += (_, _) =>
         {
