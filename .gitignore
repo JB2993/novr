@@ -394,6 +394,6 @@ dist/
 **/C:/
 
 # Agentic Development Environment
-.agents
-docs/superpowers
-.deep-diff
+.agents/
+docs/superpowers/
+.deep-diff/
