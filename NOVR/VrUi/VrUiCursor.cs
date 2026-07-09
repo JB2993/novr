@@ -745,6 +745,7 @@ public class VrUiCursor: NOVRBehaviour
     
     private void LogRaycastAtCursor()
     {
+        return;
         var camera = UiCamera;
         if (camera == null) return;
 
