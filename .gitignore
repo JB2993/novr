@@ -396,3 +396,4 @@ dist/
 # Agentic Development Environment
 .agents
 docs/superpowers
+.deep-diff
