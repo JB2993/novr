@@ -278,23 +278,17 @@ namespace NOVR.VrUi
 
             if (valid)
             {
-                // Position: controller at head-relative offset from tracking origin.
+                // Position: controller at head-relative offset from the calibrated headset
+                // world position. Using NOVRHeadsetData.Translation (rather than Camera.main's
+                // transform) keeps the controller's world position stable when Camera.main
+                // changes between scenes (e.g. menu → mission picker swap).
                 // Subtracting rawHeadPos removes the HMD height, so a controller at
                 // chest height IRL (trackingPos.y ≈ 0.8) appears at chest height
                 // in game rather than at eye-level + 0.8.
                 // Rotation: controller's own tracking orientation — not multiplied by
-                // rig rotation, so the ray direction does not follow the HMD / aircraft.
-                var rig = _xrRig;
-                if (rig != null)
-                {
-                    worldPosition = rig.position + (trackingPos - _rawHeadPos);
-                    worldRotation = trackingRot;
-                }
-                else
-                {
-                    worldPosition = cameraWorldPos + (trackingPos - _rawHeadPos);
-                    worldRotation = trackingRot;
-                }
+                // headset rotation, so the ray direction does not follow the HMD / aircraft.
+                worldPosition = NOVRHeadsetData.Translation + (trackingPos - _rawHeadPos);
+                worldRotation = trackingRot;
                 return true;
             }
 
