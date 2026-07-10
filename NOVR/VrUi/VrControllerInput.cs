@@ -29,6 +29,17 @@ namespace NOVR.VrUi
         private static Quaternion _rawRightRot, _rawLeftRot, _rawHeadRot;
         private static float _rawRightTrigger, _rawLeftTrigger;
 
+        // Per-frame edge detection — GetTriggerWasPressedThisFrame and
+        // GetTriggerWasReleasedThisFrame are idempotent within a frame so a
+        // consumer (e.g. VrUiCursor) can poll them from multiple call sites in
+        // the same Update without the second call seeing a cache the first
+        // call already advanced.
+        private static int _triggerEdgeFrame = -1;
+        private static bool _leftTriggerPressedThisFrame;
+        private static bool _rightTriggerPressedThisFrame;
+        private static bool _leftTriggerReleasedThisFrame;
+        private static bool _rightTriggerReleasedThisFrame;
+
         // Filtered tracking-space poses
         private static Vector3 _filtRightPos, _filtLeftPos;
         private static Quaternion _filtRightRot, _filtLeftRot;
@@ -376,24 +387,34 @@ namespace NOVR.VrUi
 
         public static bool GetTriggerWasPressedThisFrame(XRNode hand)
         {
-            bool current = GetTrigger(hand);
-            bool prev = hand == XRNode.LeftHand ? _leftTriggerWasPressedCache : _rightTriggerWasPressedCache;
-            if (hand == XRNode.LeftHand)
-                _leftTriggerWasPressedCache = current;
-            else
-                _rightTriggerWasPressedCache = current;
-            return current && !prev;
+            EnsureTriggerEdgeCache();
+            return hand == XRNode.LeftHand ? _leftTriggerPressedThisFrame : _rightTriggerPressedThisFrame;
         }
 
         public static bool GetTriggerWasReleasedThisFrame(XRNode hand)
         {
-            bool current = GetTrigger(hand);
-            bool prev = hand == XRNode.LeftHand ? _leftTriggerWasPressedCache : _rightTriggerWasPressedCache;
-            if (hand == XRNode.LeftHand)
-                _leftTriggerWasPressedCache = current;
-            else
-                _rightTriggerWasPressedCache = current;
-            return !current && prev;
+            EnsureTriggerEdgeCache();
+            return hand == XRNode.LeftHand ? _leftTriggerReleasedThisFrame : _rightTriggerReleasedThisFrame;
+        }
+
+        private static void EnsureTriggerEdgeCache()
+        {
+            EnsureFrame();
+            if (Time.frameCount == _triggerEdgeFrame)
+                return;
+
+            _triggerEdgeFrame = Time.frameCount;
+
+            bool leftNow = _rawLeftTrigger > 0.5f;
+            bool rightNow = _rawRightTrigger > 0.5f;
+
+            _leftTriggerPressedThisFrame = leftNow && !_leftTriggerWasPressedCache;
+            _rightTriggerPressedThisFrame = rightNow && !_rightTriggerWasPressedCache;
+            _leftTriggerReleasedThisFrame = !leftNow && _leftTriggerWasPressedCache;
+            _rightTriggerReleasedThisFrame = !rightNow && _rightTriggerWasPressedCache;
+
+            _leftTriggerWasPressedCache = leftNow;
+            _rightTriggerWasPressedCache = rightNow;
         }
 
         public static bool TryGetDominantHand(out Vector3 position, out Quaternion rotation, out bool triggerPressed)
