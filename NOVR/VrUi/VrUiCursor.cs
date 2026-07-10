@@ -206,7 +206,8 @@ public class VrUiCursor: NOVRBehaviour
         }
 
         if (Time.frameCount < 120 || Time.frameCount % 120 == 0)
-            DisableStandardUIModule();
+            if (_standaloneInputModule == null || _inputSystemUIInputModule == null)
+                DisableStandardUIModule();
 
         UpdateStandardUIModuleState();
         if (_texture == null) return;
@@ -233,17 +234,21 @@ public class VrUiCursor: NOVRBehaviour
                             (modeSetting == "Auto" && controllerAvailable);
         }
 
-        // Throttled diagnostic — show current mode + pose state once per second
-        float diagNow = Time.unscaledTime;
-        if (diagNow - _lastDiagLogTime > DiagLogInterval)
+        // Throttled diagnostic — show current mode + pose state once per second.
+        // Gated behind VerboseDiagnostics to avoid string allocations during normal play.
+        if (ModConfiguration.Instance != null && ModConfiguration.Instance.VerboseDiagnostics.Value)
         {
-            _lastDiagLogTime = diagNow;
-            string branch = (useController && controllerAvailable) ? "CONTROLLER" : "MOUSE";
-            string cursorPosStr = (_cursor != null) ? _cursor.transform.position.ToString() : "<null>";
-            string cursorActiveStr = (_cursor != null) ? _cursor.activeSelf.ToString() : "<null>";
-            string msg = $"[VrUiCursor] mode='{modeSetting}' runtime={_runtimeMode} ctrlAvail={controllerAvailable} branch={branch} ctrlPos={_controllerOrigin} cursorPos={cursorPosStr} cursorActive={cursorActiveStr} trigger={_triggerIsPressed} _hasActiveCanvas={_hasActiveCanvas}";
-            if (NOVRPlugin.LogSource != null) NOVRPlugin.LogSource.LogMessage(msg);
-            else Debug.Log(msg);
+            float diagNow = Time.unscaledTime;
+            if (diagNow - _lastDiagLogTime > DiagLogInterval)
+            {
+                _lastDiagLogTime = diagNow;
+                string branch = (useController && controllerAvailable) ? "CONTROLLER" : "MOUSE";
+                string cursorPosStr = (_cursor != null) ? _cursor.transform.position.ToString() : "<null>";
+                string cursorActiveStr = (_cursor != null) ? _cursor.activeSelf.ToString() : "<null>";
+                string msg = $"[VrUiCursor] mode='{modeSetting}' runtime={_runtimeMode} ctrlAvail={controllerAvailable} branch={branch} ctrlPos={_controllerOrigin} cursorPos={cursorPosStr} cursorActive={cursorActiveStr} trigger={_triggerIsPressed} _hasActiveCanvas={_hasActiveCanvas}";
+                if (NOVRPlugin.LogSource != null) NOVRPlugin.LogSource.LogMessage(msg);
+                else Debug.Log(msg);
+            }
         }
 
         if (useController && controllerAvailable)
@@ -281,7 +286,6 @@ public class VrUiCursor: NOVRBehaviour
 
             if (triggerDownThisFrame)
             {
-                LogRaycastAtCursor();
                 ForwardMapClickIfNeeded();
             }
 
@@ -323,7 +327,6 @@ public class VrUiCursor: NOVRBehaviour
 
             if (realMouse.leftButton.wasPressedThisFrame)
             {
-                LogRaycastAtCursor();
                 ForwardMapClickIfNeeded();
             }
         }
@@ -345,10 +348,6 @@ public class VrUiCursor: NOVRBehaviour
         {
             _runtimeMode = RuntimeInputMode.Controller;
         }
-    }
-
-    private void LateUpdate()
-    {
     }
 
     private void FirePointerEvents(Vector2 screenPoint, bool isLeftDown)
@@ -468,30 +467,42 @@ public class VrUiCursor: NOVRBehaviour
     private bool DisableStandardUIModule()
     {
         bool foundAny = false;
+        bool verbose = ModConfiguration.Instance != null && ModConfiguration.Instance.VerboseDiagnostics.Value;
 
-        _standaloneInputModule = FindObjectOfType<StandaloneInputModule>();
-        if (_standaloneInputModule != null)
+        if (_standaloneInputModule == null)
         {
-            if (NOVRPlugin.LogSource != null)
-                NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] Disabling StandaloneInputModule (enabled={_standaloneInputModule.enabled}) on {_standaloneInputModule.gameObject.name}");
+            _standaloneInputModule = FindObjectOfType<StandaloneInputModule>();
+            if (_standaloneInputModule != null)
+            {
+                if (verbose && NOVRPlugin.LogSource != null)
+                    NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] Disabling StandaloneInputModule (enabled={_standaloneInputModule.enabled}) on {_standaloneInputModule.gameObject.name}");
+                _standaloneInputModule.enabled = false;
+                foundAny = true;
+            }
+        }
+        else if (_standaloneInputModule.enabled)
+        {
             _standaloneInputModule.enabled = false;
             foundAny = true;
         }
 
-        _inputSystemUIInputModule = FindObjectOfType<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
-        if (_inputSystemUIInputModule != null)
+        if (_inputSystemUIInputModule == null)
         {
-            if (NOVRPlugin.LogSource != null)
-                NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] Disabling InputSystemUIInputModule (enabled={_inputSystemUIInputModule.enabled}) on {_inputSystemUIInputModule.gameObject.name}");
+            _inputSystemUIInputModule = FindObjectOfType<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+            if (_inputSystemUIInputModule != null)
+            {
+                if (verbose && NOVRPlugin.LogSource != null)
+                    NOVRPlugin.LogSource.LogMessage($"[VrUiCursor] Disabling InputSystemUIInputModule (enabled={_inputSystemUIInputModule.enabled}) on {_inputSystemUIInputModule.gameObject.name}");
+                _inputSystemUIInputModule.enabled = false;
+                foundAny = true;
+            }
+        }
+        else if (_inputSystemUIInputModule.enabled)
+        {
             _inputSystemUIInputModule.enabled = false;
             foundAny = true;
         }
 
-        if (!foundAny)
-        {
-            if (NOVRPlugin.LogSource != null)
-                NOVRPlugin.LogSource.LogMessage("[VrUiCursor] No UI InputModule found in scene, retrying...");
-        }
         return foundAny;
     }
 
@@ -751,279 +762,6 @@ public class VrUiCursor: NOVRBehaviour
         texture.SetPixels32(colors);
         texture.Apply();
         return texture;
-    }
-    
-    private void LogRaycastAtCursor()
-    {
-        return;
-        var camera = UiCamera;
-        if (camera == null) return;
-
-        var lines = new System.Collections.Generic.List<string>();
-        lines.Add($"=== VR UI Diagnostics at {System.DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
-        lines.Add("");
-
-        var mouse = _realMouse;
-        Vector2 mousePos = mouse != null ? mouse.position.ReadValue() : Vector2.zero;
-        lines.Add($"Mouse: screen=({mousePos.x:F0},{mousePos.y:F0}) norm=({mousePos.x / Screen.width:F4},{mousePos.y / Screen.height:F4})");
-        lines.Add($"Screen: {Screen.width}x{Screen.height}");
-        lines.Add("");
-
-        lines.Add($"ProbeRay: origin={_lastProbeRay.origin:F3} dir={_lastProbeRay.direction:F3}");
-        lines.Add($"Hit: {_hasActiveCanvas}");
-        lines.Add($"ActiveCanvas: {_lastCanvasName}");
-        lines.Add($"CursorTarget: {_lastCursorTargetPos:F3}");
-
-        // Compare screen-space positions from different paths
-        if (_cursor != null)
-        {
-            var cam = UiCamera;
-            if (cam != null)
-            {
-                Vector3 fromCursor = cam.WorldToScreenPoint(_cursor.transform.position);
-                Vector3 fromTarget = cam.WorldToScreenPoint(_lastCursorTargetPos);
-                lines.Add($"ScreenPos (cursor): ({fromCursor.x:F1},{fromCursor.y:F1}) z={fromCursor.z:F3}");
-                lines.Add($"ScreenPos (target): ({fromTarget.x:F1},{fromTarget.y:F1}) z={fromTarget.z:F3}");
-        lines.Add($"cam.pixel: {cam.pixelWidth}x{cam.pixelHeight}  Screen: {Screen.width}x{Screen.height}");
-            }
-
-            // == Paired diagnostic: Snapshot A (feed time) vs Snapshot B (now, consume time) ==
-            lines.Add("");
-            lines.Add($"--- Snapshot A: VirtualMouse feed (frame {_feedFrame}) ---");
-            lines.Add($"A_screenPoint: ({_feedScreenPoint.x:F4}, {_feedScreenPoint.y:F4})");
-            lines.Add($"A_camPos: {_feedCameraPos:F4}  A_camRot: {_feedCameraRot:F4}");
-            lines.Add($"A_proj[m00={_feedProjM00:F4} m11={_feedProjM11:F4} m02={_feedProjM02:F4} m12={_feedProjM12:F4}]");
-            lines.Add($"A_cursorWorldPos: {_feedCursorWorldPos:F4}");
-
-            int consumeFrame = Time.frameCount;
-            lines.Add($"--- Snapshot B: diagnostic capture (frame {consumeFrame}) ---");
-            var bCam = UiCamera;
-            if (bCam != null)
-            {
-                Vector3 bCamPos = bCam.transform.position;
-                Quaternion bCamRot = bCam.transform.rotation;
-                var bProj = bCam.projectionMatrix;
-                Vector3 bFreshScreen = bCam.WorldToScreenPoint(
-                    _cursor != null ? _cursor.transform.position : Vector3.zero);
-                lines.Add($"B_camPos: {bCamPos:F4}  B_camRot: {bCamRot:F4}");
-                lines.Add($"B_proj[m00={bProj.m00:F4} m11={bProj.m11:F4} m02={bProj.m02:F4} m12={bProj.m12:F4}]");
-                lines.Add($"B_freshScreenPoint: ({bFreshScreen.x:F4}, {bFreshScreen.y:F4}) z={bFreshScreen.z:F4}");
-                lines.Add($"B_cursorWorldPos: {(_cursor != null ? _cursor.transform.position.ToString("F4") : "null")}");
-            }
-            lines.Add($"A_frame==B_frame: {_feedFrame == consumeFrame}");
-
-            var bRealMouse = _realMouse;
-            if (bRealMouse != null)
-            {
-                Vector2 bMousePos = bRealMouse.position.ReadValue();
-                lines.Add($"B_realMousePos: ({bMousePos.x:F0},{bMousePos.y:F0})");
-            }
-            lines.Add("");
-        }
-
-        // Dump exactly what GraphicRaycaster sees at the fed screen point
-        if (_activeCanvas != null && _hasActiveCanvas)
-        {
-            var raycaster = _activeCanvas.GetComponent<GraphicRaycaster>();
-            var grCam = _activeCanvas.worldCamera;
-            if (raycaster != null && grCam != null)
-            {
-                lines.Add($"--- GraphicRaycaster hit-test at fed screen point ({_feedScreenPoint.x:F1}, {_feedScreenPoint.y:F1}) ---");
-                Ray screenRay = grCam.ScreenPointToRay(_feedScreenPoint);
-                lines.Add($"ScreenPointToRay: origin={screenRay.origin:F4} dir={screenRay.direction:F4}");
-
-                var ped = new PointerEventData(EventSystem.current)
-                {
-                    position = _feedScreenPoint
-                };
-                var results = new List<RaycastResult>();
-                raycaster.Raycast(ped, results);
-                if (results.Count > 0)
-                {
-                    lines.Add($"Hits: {results.Count}");
-                    for (int i = 0; i < results.Count; i++)
-                    {
-                        var r = results[i];
-                        lines.Add($"  [{i}] {r.gameObject?.name ?? "(null)"}" +
-                                   $" screenPos=({r.screenPosition.x:F1},{r.screenPosition.y:F1})" +
-                                   $" worldPos={r.worldPosition:F4}" +
-                                   $" worldNorm={r.worldNormal:F4}" +
-                                   $" distance={r.distance:F4}" +
-                                   $" sort={r.sortingOrder}" +
-                                   $" depth={r.depth}");
-                    }
-                }
-                else
-                {
-                    lines.Add("Hits: 0 (no graphic at fed screen point)");
-                }
-                lines.Add("");
-            }
-        }
-
-        // Input state
-        lines.Add($"--- Input state ---");
-        lines.Add($"RealMouse.current.pos: {Mouse.current?.position.ReadValue().ToString("F1") ?? "null"}");
-        lines.Add($"Hovered: {(_hovered != null ? _hovered.name + " (" + (_hovered.transform.parent?.name ?? "(no parent)") + ")" : "(null)")}");
-        lines.Add($"EventRoot: {(_hovered != null ? GetEventRoot(_hovered)?.name ?? "(null)" : "(null)")}");
-        lines.Add($"PointerPress: {(_pointerPress != null ? _pointerPress.name : "(null)")}");
-        lines.Add($"WasLeftDown: {_wasLeftDown}");
-        if (_controllerModeActive)
-        {
-            lines.Add("--- Controller Input ---");
-            lines.Add($"ControllerOrigin: {_controllerOrigin:F3}");
-            lines.Add($"ControllerRotation: {_controllerRotation.eulerAngles:F3}");
-            lines.Add($"ControllerDirection: {(_controllerRotation * Vector3.forward):F3}");
-            lines.Add($"TriggerPressed: {_triggerIsPressed}");
-        }
-        var stdM = FindObjectOfType<StandaloneInputModule>();
-        var ism = FindObjectOfType<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
-        lines.Add($"StandaloneInputModule: {(stdM != null ? (stdM.enabled ? "enabled" : "disabled") : "not found")}");
-        lines.Add($"InputSystemUIInputModule: {(ism != null ? (ism.enabled ? "enabled" : "disabled") : "not found")}");
-        lines.Add("");
-
-        Quaternion refRot = GetProjectionReferenceRotation();
-        lines.Add($"ReferenceRotation: euler={refRot.eulerAngles:F1} forward={refRot * Vector3.forward:F3}");
-        lines.Add($"HasOverride: {_hasProjectionReferenceOverride}");
-        lines.Add("");
-
-        Transform anchor = GetAnchorTransform();
-        lines.Add($"Anchor: {(anchor != null ? $"{anchor.name} pos={anchor.position:F3}" : "null (using camera)")}");
-        lines.Add("");
-
-        int idx = 0;
-        string activeFwd = "";
-        string activePos = "";
-        string activeName = "";
-        foreach (var c in VrCanvasHitTester.GetRegisteredCanvases())
-        {
-            if (c == null) continue;
-            bool isActive = c == _activeCanvas;
-            string diag = VrCanvasHitTester.DebugRaycast(c, _lastProbeRay);
-            var rt = c.GetComponent<RectTransform>();
-            string sz = rt != null ? rt.rect.size.ToString("F3") : "?";
-            string pos = rt != null ? rt.position.ToString("F3") : "?";
-            string fwd = rt != null ? rt.forward.ToString("F3") : "?";
-            string wc = c.worldCamera?.name ?? "null";
-
-            // Forward-orientation check: Dot(canvas.forward, canvasPos -> headPos)
-            // uGUI convention: forward points AWAY from viewer → orientDot should be NEGATIVE.
-            string orientCheck = "";
-            if (rt != null)
-            {
-                Vector3 toViewer = _lastProbeRay.origin - rt.position;
-                float orientDot = Vector3.Dot(rt.forward, toViewer.normalized);
-                orientCheck = $" orientDot={orientDot:F3}";
-                if (orientDot > 0f)
-                    orientCheck += " *** FACING WRONG (positive = forward points toward viewer, UI is mirrored) ***";
-                if (isActive)
-                {
-                    activeFwd = fwd;
-                    activePos = pos;
-                    activeName = c.name;
-                }
-            }
-
-            // Negative-lossyScale warning (mirrored canvas flips rendered handedness)
-            string scaleWarn = "";
-            if (rt != null && rt.lossyScale.x < 0f != rt.lossyScale.y < 0f)
-                scaleWarn = " *** NEGATIVE LOSSY SCALE DETECTED ***";
-
-            lines.Add($"C{idx}: {c.name}{(isActive ? " <<< ACTIVE (green)" : "")}");
-            lines.Add($"   Rect: sz={sz} pos={pos} fwd={fwd}{orientCheck}{scaleWarn}");
-            lines.Add($"   worldCamera: {wc}");
-            lines.Add($"   active: {c.gameObject.activeInHierarchy} raycast: {diag}");
-
-            if (isActive)
-            {
-                activeFwd = fwd;
-                activePos = pos;
-                activeName = c.name;
-            }
-
-            // Show forward-dot vs other canvases when there are multiple
-            foreach (var other in VrCanvasHitTester.GetRegisteredCanvases())
-            {
-                if (other == null || other == c) continue;
-                var ort = other.GetComponent<RectTransform>();
-                if (ort == null) continue;
-                float fDot = Vector3.Dot(rt.forward, ort.forward);
-                Vector3 pDelta = ort.position - rt.position;
-                lines.Add($"   vs \"{other.name}\": forwardDot={fDot:F3} posDelta=({pDelta.x:F2},{pDelta.y:F2},{pDelta.z:F2})");
-            }
-
-            idx++;
-        }
-
-        // === DynamicMap diagnostics ===
-        try
-        {
-            var dynamicMap = Object.FindObjectOfType<global::DynamicMap>();
-            if (dynamicMap != null)
-            {
-                lines.Add("");
-                lines.Add("--- DynamicMap ---");
-                var registeredCanvases = VrCanvasHitTester.GetRegisteredCanvases();
-                if (dynamicMap.mapImage != null)
-                {
-                    var mapImg = dynamicMap.mapImage.GetComponent<Image>();
-                    if (mapImg != null)
-                    {
-                        var owningCanvas = mapImg.canvas;
-                        bool isRegistered = owningCanvas != null && System.Linq.Enumerable.Contains(registeredCanvases, owningCanvas);
-                        lines.Add($"mapImage.raycastTarget: {mapImg.raycastTarget}");
-                        lines.Add($"mapImage.canvas.name: \"{owningCanvas?.name ?? "null"}\"");
-                        lines.Add($"mapImage.canvas.hasGraphicRaycaster: {owningCanvas?.GetComponent<GraphicRaycaster>() != null}");
-                        lines.Add($"mapImage.canvas.isRegistered: {isRegistered}");
-                        lines.Add($"mapImage.canvas.renderMode: {owningCanvas?.renderMode}");
-                        lines.Add($"mapImage.canvas.worldCamera: {owningCanvas?.worldCamera?.name ?? "null"}");
-                    }
-                }
-                if (dynamicMap.mapBackground != null)
-                {
-                    var bgImg = dynamicMap.mapBackground.GetComponent<Image>();
-                    if (bgImg != null)
-                        lines.Add($"mapBackground.raycastTarget: {bgImg.raycastTarget}");
-                }
-                var dynCanvas = dynamicMap.GetComponent<Canvas>();
-                if (dynCanvas != null)
-                {
-                    bool dynIsRegistered = System.Linq.Enumerable.Contains(registeredCanvases, dynCanvas);
-                    lines.Add($"DynamicMap own Canvas: {dynCanvas.name} registered={dynIsRegistered} worldCamera={dynCanvas.worldCamera?.name ?? "null"}");
-                }
-                var dynCanvasInParent = dynamicMap.GetComponentInParent<Canvas>();
-                if (dynCanvasInParent != null && dynCanvasInParent != dynCanvas)
-                {
-                    bool parentIsRegistered = System.Linq.Enumerable.Contains(registeredCanvases, dynCanvasInParent);
-                    lines.Add($"DynamicMap parent Canvas: {dynCanvasInParent.name} registered={parentIsRegistered}");
-                }
-            }
-            else
-            {
-                lines.Add("DynamicMap: not found");
-            }
-        }
-        catch (System.Exception ex)
-        {
-            lines.Add($"DynamicMap diagnostics error: {ex.GetType().Name}: {ex.Message}");
-        }
-
-        lines.Add("");
-        lines.Add("========================================");
-
-        string output = string.Join("\n", lines);
-        string filePath = System.IO.Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop),
-            $"vr-ui-diagnostics-{System.DateTime.Now:HHmmss}.txt");
-        try
-        {
-            System.IO.File.WriteAllText(filePath, output);
-            Debug.Log($"[VrUiCursor] Diagnostics written to {filePath}");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError($"[VrUiCursor] Failed to write diagnostics: {ex}");
-        }
     }
 
     public void ForwardMapClickIfNeeded()

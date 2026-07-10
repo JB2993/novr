@@ -131,13 +131,17 @@ namespace NOVR.VrUi
             RefreshRig();
 
             // Throttled diagnostic — logs raw vs filtered pose once per second
-            float now = Time.unscaledTime;
-            if (now - _lastDiagLogTime > DiagLogInterval)
+            // Gated behind VerboseDiagnostics to avoid string allocs and Camera.main queries.
+            if (ModConfiguration.Instance != null && ModConfiguration.Instance.VerboseDiagnostics.Value)
             {
-                _lastDiagLogTime = now;
-                string msg = $"[VrControllerInput] R_valid={_rightValid} rawPos={_rawRightPos} filtPos={_filtRightPos} | L_valid={_leftValid} rawPos={_rawLeftPos} filtPos={_filtLeftPos} | headValid={_headValid} rawHead={_rawHeadPos} rig={(_xrRig != null ? _xrRig.name : "<null>")} camMain={(Camera.main != null ? Camera.main.name : "<null>")} camParent={(Camera.main != null && Camera.main.transform.parent != null ? Camera.main.transform.parent.name : "<null>")}";
-                if (NOVRPlugin.LogSource != null) NOVRPlugin.LogSource.LogMessage(msg);
-                else Debug.Log(msg);
+                float now = Time.unscaledTime;
+                if (now - _lastDiagLogTime > DiagLogInterval)
+                {
+                    _lastDiagLogTime = now;
+                    string msg = $"[VrControllerInput] R_valid={_rightValid} rawPos={_rawRightPos} filtPos={_filtRightPos} | L_valid={_leftValid} rawPos={_rawLeftPos} filtPos={_filtLeftPos} | headValid={_headValid} rawHead={_rawHeadPos} rig={(_xrRig != null ? _xrRig.name : "<null>")} camMain={(Camera.main != null ? Camera.main.name : "<null>")} camParent={(Camera.main != null && Camera.main.transform.parent != null ? Camera.main.transform.parent.name : "<null>")}";
+                    if (NOVRPlugin.LogSource != null) NOVRPlugin.LogSource.LogMessage(msg);
+                    else Debug.Log(msg);
+                }
             }
         }
 
@@ -227,7 +231,8 @@ namespace NOVR.VrUi
 
         private static void OnDeviceChange(UnityEngine.InputSystem.InputDevice device, InputDeviceChange change)
         {
-            Debug.Log($"[VrControllerInput] DeviceChange: {change} name={device.name} layout={device.layout}");
+            if (ModConfiguration.Instance != null && ModConfiguration.Instance.VerboseDiagnostics.Value)
+                Debug.Log($"[VrControllerInput] DeviceChange: {change} name={device.name} layout={device.layout}");
             if (change == InputDeviceChange.Added || change == InputDeviceChange.Removed)
                 LogDiagnostics();
         }

@@ -526,21 +526,28 @@ public sealed class NativeMenuEnvironmentAssetCache : MonoBehaviour
         }
     }
 
-    private void LogMissingObjectDiagnostic(string trigger)
-    {
-        if (Time.unscaledTime < _nextMissingObjectDiagnosticTime)
+private void LogMissingObjectDiagnostic(string trigger)
         {
-            return;
-        }
+            // Diagnostic is gated behind VerboseDiagnostics so the per-fire
+            // Resources.FindObjectsOfTypeAll sweeps only run when the user explicitly
+            // asks for verbose logging. This also skips the throttled string
+            // allocation when disabled.
+            if (ModConfiguration.Instance == null || !ModConfiguration.Instance.VerboseDiagnostics.Value)
+                return;
 
-        _nextMissingObjectDiagnosticTime = Time.unscaledTime + 2f;
-        Debug.Log(
-            $"[NOVR] Native menu environment asset cache waiting for Encyclopedia objects via {trigger}: " +
-            $"mapSettings={Resources.FindObjectsOfTypeAll<MapSettings>().Length}, " +
-            $"levelInfo={Resources.FindObjectsOfTypeAll<LevelInfo>().Length}, " +
-            $"cloudLayer={Resources.FindObjectsOfTypeAll<CloudLayer>().Length}, " +
-            $"scenes={DescribeLoadedScenes()}.");
-    }
+            if (Time.unscaledTime < _nextMissingObjectDiagnosticTime)
+            {
+                return;
+            }
+
+            _nextMissingObjectDiagnosticTime = Time.unscaledTime + 2f;
+            Debug.Log(
+                $"[NOVR] Native menu environment asset cache waiting for Encyclopedia objects via {trigger}: " +
+                $"mapSettings={Resources.FindObjectsOfTypeAll<MapSettings>().Length}, " +
+                $"levelInfo={Resources.FindObjectsOfTypeAll<LevelInfo>().Length}, " +
+                $"cloudLayer={Resources.FindObjectsOfTypeAll<CloudLayer>().Length}, " +
+                $"scenes={DescribeLoadedScenes()}.");
+        }
 
     private static string DescribeLoadedScenes()
     {

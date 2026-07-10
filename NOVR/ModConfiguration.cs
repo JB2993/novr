@@ -21,9 +21,11 @@ public class ModConfiguration
     public readonly ConfigEntry<bool> EnableNativeMenuEnvironment;
     public readonly ConfigEntry<bool> EnableExperimentalSteamVrControllerProfiles;
     public readonly ConfigEntry<bool> LogXrStartupDiagnostics;
+    public readonly ConfigEntry<bool> VerboseDiagnostics;
     public readonly ConfigEntry<float> CockpitHeadForwardOffset;
     public readonly ConfigEntry<float> CockpitHeadRightOffset;
     public readonly ConfigEntry<KeyCode> RecenterShortcut;
+    public readonly ConfigEntry<bool> ShowRecenterInPauseMenu;
     public readonly ConfigEntry<bool> SavePositionTrigger;
     public readonly ConfigEntry<float> MapClickMaxRadius;
 
@@ -88,6 +90,15 @@ public class ModConfiguration
             false,
             "Log read-only XR loader, OpenXR runtime, subsystem, and input device state during VR startup.");
 
+        VerboseDiagnostics = config.Bind(
+            "Diagnostics",
+            "Verbose Diagnostics",
+            false,
+            "When enabled, NOVR emits per-frame and per-second diagnostic logs " +
+            "(controller laser dumps, controller input pose dumps, cursor mode dumps, " +
+            "asset-cache waiting messages). Disabled by default for performance — " +
+            "enable only when troubleshooting.");
+
         CockpitHeadForwardOffset = config.Bind(
             "Experimental",
             "Cockpit Head Forward Offset",
@@ -105,6 +116,12 @@ public class ModConfiguration
             "Recenter Shortcut",
             KeyCode.F9,
             "Keyboard shortcut to recenter the VR view. For HOTAS users, map a joystick button to this key via external software.");
+
+        ShowRecenterInPauseMenu = config.Bind(
+            "Input",
+            "Show Recenter In Pause Menu",
+            true,
+            "Add a 'RECENTER VIEW' button to the in-game pause menu while seated in a cockpit. Clicking it recenters the VR view immediately.");
 
         SavePositionTrigger = config.Bind(
             "Experimental",
