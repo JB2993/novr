@@ -112,6 +112,76 @@ Auto-detection passes check `NuclearOption_Data/Managed` exists at each path. Or
 | **XInput DLL** | `Uuvr.XInput/main.cpp` | XInput 1.3 proxy hook |
 | **Build orchestrator** | `NOVR.Build/` | `.props`, `.targets`, `.csproj` only — no C# source |
 
+## Reverse Engineering the Game
+
+The game is a closed-source Unity title — NOVR integrates with it via Harmony patches and reflection but has no access to its source. When you need to understand how a game system actually works (UI hierarchy, camera states, input bindings, scene structure), decompile the relevant assemblies.
+
+### Game assemblies
+
+```
+<Steam>/steamapps/common/Nuclear Option/NuclearOption_Data/Managed/
+├── Assembly-CSharp.dll          # Main game code (gameplay, UI, networking)
+├── Assembly-CSharp-firstpass.dll # First-pass code (early Unity callbacks)
+├── UnityEngine.*.dll             # Unity engine (don't decompile, just reference)
+└── ... (other 3rd-party deps)
+```
+
+`<Steam>` is wherever the user installed Steam (e.g. `C:\Program Files (x86)\Steam`, `D:\SteamLibrary`, etc.) — the `steamapps/common/Nuclear Option/` portion is fixed. Resolve from Steam app manifest `libraryfolders.vdf` if unsure.
+
+### Decompiler
+
+Use **ilspycmd** (ICSharpCode.Decompiler CLI). Install once globally:
+
+```powershell
+dotnet tool install -g ilspycmd
+```
+
+ilspycmd 8.x targets .NET 6. Set `DOTNET_ROLL_FORWARD=Major` to use it on machines that only have .NET 8/9 runtimes (common setup):
+
+```powershell
+$env:DOTNET_ROLL_FORWARD = "Major"
+ilspycmd <args>
+```
+
+Tool lives at `C:\Users\<user>\.dotnet\tools\ilspycmd.exe`. Add `$env:USERPROFILE\.dotnet\tools` to `$env:PATH` to invoke as `ilspycmd`.
+
+### Common invocations
+
+```powershell
+# List every class in an assembly (filter with grep for the area you care about)
+ilspycmd -l c "D:\...\Assembly-CSharp.dll" | Select-String "Pause|Menu|UI"
+
+# Decompile a single type to stdout — quickest path to understand one class
+ilspycmd -t GameplayUI "D:\...\Assembly-CSharp.dll"
+
+# Full decompile to directory (one file per type) for offline searching
+ilspycmd -p -o C:\temp\decompiled "D:\...\Assembly-CSharp.dll"
+```
+
+The `-t` flag takes the **unqualified type name**. Use `-t "Namespace.TypeName"` for namespaced types. Pair with `| Out-File path.cs` for long output.
+
+### Where to look first
+
+When investigating a feature area, these entry points cover most of what NOVR integrates with:
+
+| Area | Type to decompile |
+|---|---|
+| In-game UI (pause menu, HUD, settings) | `GameplayUI`, `MessageUI`, `StatusDisplay` |
+| Pause menu buttons + flow | `QuitMissionButton`, `RestartMissionButton`, `ButtonController` (`JamesFrowen.ScriptableVariables.UI.ButtonController`) |
+| Camera state machine | `CameraStateManager`, `CameraCockpitState`, `CameraSelectionState`, `CameraOrbitState` |
+| Network/multiplayer pause | `NuclearOption.Networking.NetworkPause` |
+| Cockpit / flight scene | `CombatHUD`, `FlightHud` |
+| UI primitives | `JamesFrowen.ScriptableVariables.UI.ButtonController`, `NuclearOption.UI.BaseToggle`, `NuclearOption.UI.SliderText` |
+
+After decompiling, search the output for the GameObject / field / panel name that you need to target from NOVR.
+
+### Tips
+
+- `ilspycmd -t` is faster than full-project decompile and produces readable output for one-off investigation.
+- Button-related game UI almost always extends `JamesFrowen.ScriptableVariables.UI.ButtonController` (which `[RequireComponent(typeof(Button))]`), not `UnityEngine.UI.Button` directly — search for `ButtonController` to find click handlers, then follow the parent's `Transform` chain to find the containing panel.
+- For UI hierarchy at runtime (when GameObject names are not visible in source), use `Debug.Log` from a temporary MonoBehaviour or add a one-shot hierarchy dump to a Harmony postfix (see `NOVR/Patches/UI/GameplayUIPauseMenuPatch.cs` for the pattern).
+- Decompiled output goes stale as the game updates — re-decompile after Steam updates Nuclear Option.
+
 ## Setup Commands
 
 All commands run from the repository root. Use PowerShell (Windows) or bash (Linux).
