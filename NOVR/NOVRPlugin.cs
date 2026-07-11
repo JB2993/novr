@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using BepInEx;
+using BepInEx.Logging;
 using HarmonyLib;
 using NOVR.PatchHelper;
 using NOVR.VrCamera;
@@ -24,6 +25,7 @@ namespace NOVR;
     "0.4.0")]
 public class NOVRPlugin : BaseUnityPlugin
 {
+    public static ManualLogSource LogSource => _instance?.Logger;
     
     private static NOVRPlugin _instance;
     public static string ModFolderPath { get; private set; }

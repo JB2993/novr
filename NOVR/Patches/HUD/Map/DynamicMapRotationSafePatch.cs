@@ -8,10 +8,10 @@ namespace NOVR.Patches.HUD.Map;
 internal static class DynamicMapRotationSafePatch
 {
     private const float MinimumMapImageAlpha = 1.0f;
-    private const float MapBrightnessMultiplier = 2.0f;
     private static readonly FieldInfo MapBackgroundField = AccessTools.Field(typeof(global::DynamicMap), "mapBackground");
     private static readonly FieldInfo MapTargetField = AccessTools.Field(typeof(global::DynamicMap), "mapTarget");
     private static readonly FieldInfo IsJumpingField = AccessTools.Field(typeof(global::DynamicMap), "isJumping");
+    private static CanvasGroup _minimapCanvasGroup;
 
     [HarmonyPatch(typeof(global::DynamicMap), "CenterMap")]
     private static class CenterMapPatch
@@ -22,6 +22,48 @@ internal static class DynamicMapRotationSafePatch
             var cameraPosition = SceneSingleton<CameraStateManager>.i.transform.GlobalPosition().AsVector3() * __instance.mapDisplayFactor;
             __instance.mapImage.transform.localPosition = MapOffsetToLocalPosition(__instance, cameraPosition);
             return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(global::DynamicMap), "Awake")]
+    private static class AwakePatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(global::DynamicMap __instance)
+        {
+            _minimapCanvasGroup = __instance.gameObject.GetComponent<CanvasGroup>();
+            if (_minimapCanvasGroup == null)
+            {
+                _minimapCanvasGroup = __instance.gameObject.AddComponent<CanvasGroup>();
+                _minimapCanvasGroup.interactable = true;
+                _minimapCanvasGroup.blocksRaycasts = true;
+                _minimapCanvasGroup.ignoreParentGroups = false;
+                _minimapCanvasGroup.alpha = 1.0f;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(global::DynamicMap), "Minimize")]
+    private static class MinimizePatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix()
+        {
+            if (_minimapCanvasGroup == null) return;
+            var config = ModConfiguration.Instance;
+            if (config == null) return;
+            _minimapCanvasGroup.alpha = Mathf.Clamp01(config.HudMinimapOpacity.Value);
+        }
+    }
+
+    [HarmonyPatch(typeof(global::DynamicMap), "Maximize")]
+    private static class MaximizePatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix()
+        {
+            if (_minimapCanvasGroup == null) return;
+            _minimapCanvasGroup.alpha = 1.0f;
         }
     }
 
@@ -85,13 +127,11 @@ internal static class DynamicMapRotationSafePatch
             var mapImage = __instance.mapImage.GetComponent<Image>();
             if (mapImage == null)
                 return;
-            
+
             var color = mapImage.color;
-            color.r = Mathf.Clamp01(color.r * MapBrightnessMultiplier);
-            color.g = Mathf.Clamp01(color.g * MapBrightnessMultiplier);
-            color.b = Mathf.Clamp01(color.b * MapBrightnessMultiplier);
             color.a = Mathf.Max(color.a, MinimumMapImageAlpha);
             mapImage.color = color;
+            mapImage.material = null;
         }
     }
 

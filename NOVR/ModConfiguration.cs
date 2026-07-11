@@ -17,13 +17,18 @@ public class ModConfiguration
     public readonly ConfigEntry<float> NativeMenuScale;
     public readonly ConfigEntry<float> NativeMenuDistance;
     public readonly ConfigEntry<float> NativeMenuHeightOffset;
+    public readonly ConfigEntry<string> CursorInputMode;
     public readonly ConfigEntry<bool> EnableNativeMenuEnvironment;
     public readonly ConfigEntry<bool> EnableExperimentalSteamVrControllerProfiles;
     public readonly ConfigEntry<bool> LogXrStartupDiagnostics;
+    public readonly ConfigEntry<bool> VerboseDiagnostics;
     public readonly ConfigEntry<float> CockpitHeadForwardOffset;
     public readonly ConfigEntry<float> CockpitHeadRightOffset;
     public readonly ConfigEntry<KeyCode> RecenterShortcut;
+    public readonly ConfigEntry<bool> ShowRecenterInPauseMenu;
     public readonly ConfigEntry<bool> SavePositionTrigger;
+    public readonly ConfigEntry<float> MapClickMaxRadius;
+    public readonly ConfigEntry<float> HudMinimapOpacity;
 
     private readonly Dictionary<string, (ConfigEntry<float> Forward, ConfigEntry<float> Right)> _perPlaneEntries = new();
 
@@ -62,6 +67,12 @@ public class ModConfiguration
             0.0f,
             "Vertical offset in meters applied when NOVR's native VR menu UI is opened or recentered. Values from -0.25 to 1.0 are supported.");
 
+        CursorInputMode = config.Bind(
+            "Experimental",
+            "Cursor Input Mode",
+            "Auto",
+            "Selects input source for the VR UI cursor. 'Auto' = use controller if tracked, else mouse. 'Mouse' = always use mouse. 'Controller' = always use controller ray.");
+
         EnableNativeMenuEnvironment = config.Bind(
             "Experimental",
             "Enable Native Menu Environment",
@@ -79,6 +90,15 @@ public class ModConfiguration
             "Log XR Startup Diagnostics",
             false,
             "Log read-only XR loader, OpenXR runtime, subsystem, and input device state during VR startup.");
+
+        VerboseDiagnostics = config.Bind(
+            "Diagnostics",
+            "Verbose Diagnostics",
+            false,
+            "When enabled, NOVR emits per-frame and per-second diagnostic logs " +
+            "(controller laser dumps, controller input pose dumps, cursor mode dumps, " +
+            "asset-cache waiting messages). Disabled by default for performance — " +
+            "enable only when troubleshooting.");
 
         CockpitHeadForwardOffset = config.Bind(
             "Experimental",
@@ -98,11 +118,30 @@ public class ModConfiguration
             KeyCode.F9,
             "Keyboard shortcut to recenter the VR view. For HOTAS users, map a joystick button to this key via external software.");
 
+        ShowRecenterInPauseMenu = config.Bind(
+            "Input",
+            "Show Recenter In Pause Menu",
+            true,
+            "Add a 'RECENTER VIEW' button to the in-game pause menu while seated in a cockpit. Clicking it recenters the VR view immediately.");
+
         SavePositionTrigger = config.Bind(
             "Experimental",
             "Save Position For Current Aircraft",
             false,
             "Check this box to save the current Cockpit Head Forward/Right Offset values for the aircraft you're currently in. Automatically unchecks itself.");
+
+        MapClickMaxRadius = config.Bind(
+            "Map",
+            "Click Max Radius",
+            0.0375f,
+            "Maximum normalized distance from the VR cursor to a map icon for the icon to be selectable on click. Distance is measured as a fraction of the map image's smaller dimension, so it stays consistent regardless of zoom level, HUD scale, or HMD resolution. Values from 0.0 to 0.5 are supported.");
+
+        HudMinimapOpacity = config.Bind(
+            "HUD",
+            "Minimap Opacity",
+            1.0f,
+            "Opacity of the in-cockpit minimap (the small map in the HUD, not the full clickable map). " +
+            "1.0 is fully opaque, 0.0 hides it completely. Applies only when the minimap is shown; the full map view is unaffected.");
 
         SavePositionTrigger.SettingChanged += (_, _) =>
         {

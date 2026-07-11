@@ -15,6 +15,9 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
     private const float MaxDistance = 6.0f;
     private const float MinHeightOffset = -0.25f;
     private const float MaxHeightOffset = 1.0f;
+    private const float DefaultMinimapOpacity = 1.0f;
+    private const float MinMinimapOpacity = 0.0f;
+    private const float MaxMinimapOpacity = 1.0f;
 
     private static readonly Color BackgroundColor = new(0.025f, 0.035f, 0.045f, 0.93f);
     private static readonly Color PanelColor = new(0.05f, 0.06f, 0.065f, 0.94f);
@@ -33,6 +36,7 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
     private Text? _scaleValueText;
     private Text? _distanceValueText;
     private Text? _heightValueText;
+    private Text? _minimapOpacityValueText;
     private Text? _statusText;
     private Action? _close;
     private Action? _recenter;
@@ -113,6 +117,17 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
             () => ChangeHeightOffset(0.05f),
             out _heightValueText);
 
+        CreateText("Map Header", panel, "MAP", new Vector2(0f, -315f), new Vector2(860f, 30f), 17, TextAnchor.MiddleCenter, new Color(0.84f, 0.90f, 0.92f, 1f));
+
+        CreateSettingRow(
+            panel,
+            "MINIMAP OPACITY",
+            "Opacity of the small minimap in the HUD (not the full map).",
+            new Vector2(0f, -395f),
+            () => ChangeMinimapOpacity(-0.05f),
+            () => ChangeMinimapOpacity(0.05f),
+            out _minimapOpacityValueText);
+
         CreateMenuButton("RESET DEFAULTS", panel, new Vector2(-160f, -310f), new Vector2(220f, 42f), ButtonColor, ResetDefaults, 13);
         CreateMenuButton("RECENTER", panel, new Vector2(160f, -310f), new Vector2(180f, 42f), ActionButtonColor, Recenter, 14);
         _statusText = CreateText("Status", panel, "", new Vector2(0f, -340f), new Vector2(860f, 34f), 13, TextAnchor.MiddleCenter, new Color(0.84f, 0.90f, 0.92f, 1f));
@@ -178,12 +193,21 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
         SaveAndRefresh("Height offset updated.");
     }
 
+    private void ChangeMinimapOpacity(float delta)
+    {
+        var config = ModConfiguration.Instance;
+        var value = RoundToStep(Mathf.Clamp(config.HudMinimapOpacity.Value + delta, MinMinimapOpacity, MaxMinimapOpacity), 0.05f);
+        config.HudMinimapOpacity.Value = value;
+        SaveAndRefresh("Minimap opacity updated.");
+    }
+
     private void ResetDefaults()
     {
         var config = ModConfiguration.Instance;
         config.NativeMenuScale.Value = DefaultScale;
         config.NativeMenuDistance.Value = DefaultDistance;
         config.NativeMenuHeightOffset.Value = DefaultHeightOffset;
+        config.HudMinimapOpacity.Value = DefaultMinimapOpacity;
         SaveAndRefresh("VR UI settings reset.");
     }
 
@@ -237,6 +261,7 @@ public sealed class NativeVrUiSettingsPanel : MonoBehaviour
         if (_scaleValueText != null) _scaleValueText.text = $"{config.NativeMenuScale.Value:0.00}x";
         if (_distanceValueText != null) _distanceValueText.text = $"{config.NativeMenuDistance.Value:0.0} m";
         if (_heightValueText != null) _heightValueText.text = $"{config.NativeMenuHeightOffset.Value:+0.00;-0.00;0.00} m";
+        if (_minimapOpacityValueText != null) _minimapOpacityValueText.text = $"{Mathf.RoundToInt(config.HudMinimapOpacity.Value * 100f)}%";
     }
 
     private void RefreshNativeUiToggle(bool enabled)
