@@ -28,6 +28,7 @@ public class ModConfiguration
     public readonly ConfigEntry<bool> ShowRecenterInPauseMenu;
     public readonly ConfigEntry<bool> SavePositionTrigger;
     public readonly ConfigEntry<float> MapClickMaxRadius;
+    public readonly ConfigEntry<float> HudMinimapOpacity;
 
     private readonly Dictionary<string, (ConfigEntry<float> Forward, ConfigEntry<float> Right)> _perPlaneEntries = new();
 
@@ -134,6 +135,13 @@ public class ModConfiguration
             "Click Max Radius",
             0.0375f,
             "Maximum normalized distance from the VR cursor to a map icon for the icon to be selectable on click. Distance is measured as a fraction of the map image's smaller dimension, so it stays consistent regardless of zoom level, HUD scale, or HMD resolution. Values from 0.0 to 0.5 are supported.");
+
+        HudMinimapOpacity = config.Bind(
+            "HUD",
+            "Minimap Opacity",
+            1.0f,
+            "Opacity of the in-cockpit minimap (the small map in the HUD, not the full clickable map). " +
+            "1.0 is fully opaque, 0.0 hides it completely. Applies only when the minimap is shown; the full map view is unaffected.");
 
         SavePositionTrigger.SettingChanged += (_, _) =>
         {
