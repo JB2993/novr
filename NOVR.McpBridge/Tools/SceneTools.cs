@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -80,6 +81,7 @@ public static class SceneTools
         {
             if (component == null) continue;
             sb.AppendLine($"  [{component.GetType().Name}]");
+            AppendCuratedProperties(sb, component);
             var fields = component.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance);
             foreach (var field in fields)
             {
@@ -93,6 +95,92 @@ public static class SceneTools
         }
 
         return sb.ToString();
+    }
+
+    private static readonly Dictionary<Type, PropertyInfo[]> CuratedProperties = BuildCuratedProperties();
+
+    private static Dictionary<Type, PropertyInfo[]> BuildCuratedProperties()
+    {
+        var flags = BindingFlags.Public | BindingFlags.Instance;
+        var byName = (Type t, string n) => t.GetProperty(n, flags) ?? throw new InvalidOperationException($"Curated property {t.Name}.{n} not found");
+        return new Dictionary<Type, PropertyInfo[]>
+        {
+            [typeof(UnityEngine.UI.Image)] = new[]
+            {
+                byName(typeof(UnityEngine.UI.Image), "color"),
+                byName(typeof(UnityEngine.UI.Image), "sprite"),
+                byName(typeof(UnityEngine.UI.Image), "raycastTarget"),
+                byName(typeof(UnityEngine.UI.Image), "fillAmount"),
+                byName(typeof(UnityEngine.UI.Image), "material"),
+            },
+            [typeof(UnityEngine.UI.RawImage)] = new[]
+            {
+                byName(typeof(UnityEngine.UI.RawImage), "color"),
+                byName(typeof(UnityEngine.UI.RawImage), "texture"),
+                byName(typeof(UnityEngine.UI.RawImage), "uvRect"),
+                byName(typeof(UnityEngine.UI.RawImage), "raycastTarget"),
+            },
+            [typeof(UnityEngine.CanvasGroup)] = new[]
+            {
+                byName(typeof(UnityEngine.CanvasGroup), "alpha"),
+                byName(typeof(UnityEngine.CanvasGroup), "ignoreParentGroups"),
+                byName(typeof(UnityEngine.CanvasGroup), "blocksRaycasts"),
+                byName(typeof(UnityEngine.CanvasGroup), "interactable"),
+            },
+            [typeof(UnityEngine.RectTransform)] = new[]
+            {
+                byName(typeof(UnityEngine.RectTransform), "sizeDelta"),
+                byName(typeof(UnityEngine.RectTransform), "anchoredPosition"),
+                byName(typeof(UnityEngine.RectTransform), "localScale"),
+                byName(typeof(UnityEngine.RectTransform), "localEulerAngles"),
+            },
+        };
+    }
+
+    private static string FormatPropertyValue(object? value)
+    {
+        if (value == null) return "null";
+        switch (value)
+        {
+            case Color c:
+                return $"({c.r:F2}, {c.g:F2}, {c.b:F2}, a={c.a:F2})";
+            case Sprite s:
+                return $"\"{s.name}\" {s.rect.width}x{s.rect.height} ({(s.texture != null ? s.texture.name + " " + s.texture.width + "x" + s.texture.height : "no texture")})";
+            case Texture2D t2d:
+                return $"\"{t2d.name}\" {t2d.width}x{t2d.height}";
+            case Texture tex:
+                return $"\"{tex.name}\"";
+            case Material mat:
+                return $"\"{mat.name}\"";
+            case Rect r:
+                return $"(x={r.x:F1}, y={r.y:F1}, w={r.width:F1}, h={r.height:F1})";
+            case Vector2 v2:
+                return $"({v2.x:F2}, {v2.y:F2})";
+            case Vector3 v3:
+                return $"({v3.x:F2}, {v3.y:F2}, {v3.z:F2})";
+            case Vector4 v4:
+                return $"({v4.x:F2}, {v4.y:F2}, {v4.z:F2}, {v4.w:F2})";
+            case bool b:
+                return b ? "True" : "False";
+            case float f:
+                return $"{f:F2}";
+            default:
+                return value.ToString() ?? "null";
+        }
+    }
+
+    private static void AppendCuratedProperties(StringBuilder sb, Component component)
+    {
+        if (!CuratedProperties.TryGetValue(component.GetType(), out var props)) return;
+        foreach (var prop in props)
+        {
+            try
+            {
+                var value = prop.GetValue(component);
+                sb.AppendLine($"    {prop.Name} = {FormatPropertyValue(value)}");
+            }
+            catch { sb.AppendLine($"    {prop.Name} = <error>"); }
+        }
     }
 
     [McpTool("find_objects_by_type", "Finds all GameObject paths for a given Unity component type.")]
