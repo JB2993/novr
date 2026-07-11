@@ -8,7 +8,6 @@ namespace NOVR.Patches.HUD.Map;
 internal static class DynamicMapRotationSafePatch
 {
     private const float MinimumMapImageAlpha = 1.0f;
-    private const float MapBrightnessMultiplier = 2.0f;
     private static readonly FieldInfo MapBackgroundField = AccessTools.Field(typeof(global::DynamicMap), "mapBackground");
     private static readonly FieldInfo MapTargetField = AccessTools.Field(typeof(global::DynamicMap), "mapTarget");
     private static readonly FieldInfo IsJumpingField = AccessTools.Field(typeof(global::DynamicMap), "isJumping");
@@ -128,13 +127,11 @@ internal static class DynamicMapRotationSafePatch
             var mapImage = __instance.mapImage.GetComponent<Image>();
             if (mapImage == null)
                 return;
-            
+
             var color = mapImage.color;
-            color.r = Mathf.Clamp01(color.r * MapBrightnessMultiplier);
-            color.g = Mathf.Clamp01(color.g * MapBrightnessMultiplier);
-            color.b = Mathf.Clamp01(color.b * MapBrightnessMultiplier);
             color.a = Mathf.Max(color.a, MinimumMapImageAlpha);
             mapImage.color = color;
+            mapImage.material = null;
         }
     }
 
