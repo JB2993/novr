@@ -57,9 +57,7 @@ public static class SceneTools
         [McpParam(Name = "includeComponents", Description = "Include component field values", Required = false)]
         bool includeComponents = false)
     {
-        var go = GameObject.Find(name) ?? Resources.FindObjectsOfTypeAll(typeof(GameObject))
-            .Cast<GameObject>()
-            .FirstOrDefault(o => o.name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+        var go = FindGameObjectByName(name);
 
         if (go == null)
             return $"GameObject '{name}' not found.";
@@ -95,6 +93,13 @@ public static class SceneTools
         }
 
         return sb.ToString();
+    }
+
+    private static GameObject? FindGameObjectByName(string name)
+    {
+        return GameObject.Find(name) ?? Resources.FindObjectsOfTypeAll(typeof(GameObject))
+            .Cast<GameObject>()
+            .FirstOrDefault(o => o.name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
     private static readonly Dictionary<Type, PropertyInfo[]> CuratedProperties = BuildCuratedProperties();
@@ -219,6 +224,49 @@ public static class SceneTools
             sb.Insert(0, parent.name);
             parent = parent.parent;
         }
+        return sb.ToString();
+    }
+
+    [McpTool("get_canvas_group_chain", "Walks a GameObject's parent chain and reports every CanvasGroup with alpha and ignoreParentGroups, plus cumulative effective alpha.")]
+    public static string GetCanvasGroupChain(
+        [McpParam(Name = "name", Description = "GameObject name (substring match)")]
+        string name)
+    {
+        var go = FindGameObjectByName(name);
+        if (go == null) return $"GameObject '{name}' not found.";
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"CanvasGroup chain for '{go.name}' (scene={go.scene.name}):");
+        var current = go.transform;
+        var depth = 0;
+        var effectiveAlpha = 1.0f;
+        var multiplying = true;
+        while (current != null)
+        {
+            var cg = current.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                var indent = new string(' ', depth * 2 + 2);
+                sb.AppendLine($"{indent}- {current.name} [CanvasGroup]");
+                sb.AppendLine($"{indent}    alpha = {cg.alpha:F2}");
+                sb.AppendLine($"{indent}    ignoreParentGroups = {(cg.ignoreParentGroups ? "True" : "False")}");
+                sb.AppendLine($"{indent}    blocksRaycasts = {(cg.blocksRaycasts ? "True" : "False")}");
+                sb.AppendLine($"{indent}    interactable = {(cg.interactable ? "True" : "False")}");
+                if (multiplying && !cg.ignoreParentGroups)
+                {
+                    effectiveAlpha *= cg.alpha;
+                }
+                if (cg.ignoreParentGroups)
+                {
+                    multiplying = false;
+                    sb.AppendLine($"{indent}    (above this point, ancestor alphas are ignored)");
+                }
+            }
+            current = current.parent;
+            depth++;
+        }
+        sb.AppendLine();
+        sb.AppendLine($"Effective cumulative alpha (down to target): {effectiveAlpha:F2}");
         return sb.ToString();
     }
 }
