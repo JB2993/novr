@@ -15,4 +15,10 @@
         <AssemblyName>NOVR.McpBridge</AssemblyName>
         <NoWarn>CS1591</NoWarn>
     </PropertyGroup>
+    <ItemGroup>
+        <Reference Include="Valve.Newtonsoft.Json">
+            <HintPath>$(MSBuildThisFileDirectory)..\lib\Valve.Newtonsoft.Json.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
 </Project>
