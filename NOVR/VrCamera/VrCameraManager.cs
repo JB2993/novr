@@ -13,6 +13,7 @@ public class VrCameraManager: MonoBehaviour
     private const string NuclearOptionMainCameraName = "Main Camera";
     private const string NuclearOptionMenuCameraName = "Menu Camera";
     private const string VrCameraChildName = "NOVR Main Camera";
+    private const string PostProcessingRendererName = "postProcessingRenderer";
     private static readonly string[] TrackedChildNames = {"cockpitRenderer", "postProcessingRenderer"};
 
     public static HashSet<Camera> IgnoredCameras = new();
@@ -159,7 +160,27 @@ public class VrCameraManager: MonoBehaviour
             if (child != null)
             {
                 child.SetParent(trackedCameraTransform, false);
+                ConfigureTrackedChildCamera(child);
             }
         }
+    }
+
+    private static void ConfigureTrackedChildCamera(Transform child)
+    {
+        if (!string.Equals(child.name, PostProcessingRendererName, System.StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var camera = child.GetComponent<Camera>();
+        if (camera == null)
+        {
+            return;
+        }
+
+        camera.stereoTargetEye = StereoTargetEyeMask.None;
+        var additionalCameraData = AdditionalCameraData.Create(camera);
+        additionalCameraData?.SetAllowXrRendering(false);
+        Debug.Log("[NOVR] Disabled XR rendering for postProcessingRenderer.");
     }
 }

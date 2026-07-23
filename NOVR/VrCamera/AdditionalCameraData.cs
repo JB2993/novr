@@ -69,7 +69,7 @@ public class AdditionalCameraData: MonoBehaviour
 
     public void SetAllowXrRendering(bool allowXrRendering)
     {
-        _allowXrRenderingProperty.SetValue(_additionalCameraData, allowXrRendering);    
+        _allowXrRenderingProperty?.SetValue(_additionalCameraData, allowXrRendering);    
     }
 }
 #endif

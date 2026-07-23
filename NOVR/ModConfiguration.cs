@@ -20,6 +20,7 @@ public class ModConfiguration
     public readonly ConfigEntry<bool> EnableNativeMenuEnvironment;
     public readonly ConfigEntry<bool> EnableExperimentalSteamVrControllerProfiles;
     public readonly ConfigEntry<bool> LogXrStartupDiagnostics;
+    public readonly ConfigEntry<bool> LogFramePacingDiagnostics;
     public readonly ConfigEntry<float> CockpitHeadForwardOffset;
     public readonly ConfigEntry<float> CockpitHeadRightOffset;
     public readonly ConfigEntry<KeyCode> RecenterShortcut;
@@ -79,6 +80,12 @@ public class ModConfiguration
             "Log XR Startup Diagnostics",
             false,
             "Log read-only XR loader, OpenXR runtime, subsystem, and input device state during VR startup.");
+
+        LogFramePacingDiagnostics = config.Bind(
+            "Diagnostics",
+            "Log Frame Pacing Diagnostics",
+            false,
+            "Log lightweight in-game VR frame pacing diagnostics once per second. Useful when Unity Profiler cannot be attached.");
 
         CockpitHeadForwardOffset = config.Bind(
             "Experimental",

@@ -81,6 +81,8 @@ public class Core : MonoBehaviour
         {
             gameObject.AddComponent<XrStartupDiagnosticsBehaviour>();
         }
+
+        UpdateFramePacingDiagnostics();
         
         _vrTogglerManager = new VrTogglerManager();
         
@@ -92,6 +94,21 @@ public class Core : MonoBehaviour
     {
         EnsureNativeMenuEnvironmentAssetCache();
         UpdatePhysicsRate();
+        UpdateFramePacingDiagnostics();
+    }
+
+    private void UpdateFramePacingDiagnostics()
+    {
+        var enabled = ModConfiguration.Instance.LogFramePacingDiagnostics.Value;
+        var diagnostics = gameObject.GetComponent<FramePacingDiagnostics>();
+        if (enabled && diagnostics == null)
+        {
+            gameObject.AddComponent<FramePacingDiagnostics>();
+        }
+        else if (!enabled && diagnostics != null)
+        {
+            Destroy(diagnostics);
+        }
     }
 
     private void EnsureNativeMenuEnvironmentAssetCache()

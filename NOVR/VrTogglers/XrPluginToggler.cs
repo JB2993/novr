@@ -36,6 +36,7 @@ public abstract class XrPluginToggler: VrToggler
 
     protected override bool EnableVr()
     {
+        //XrMirrorViewConfigurator.Apply();
         XrStartupDiagnostics.LogBeforeStart(_managerSetings);
         _managerSetings.StartSubsystems();
         XrStartupDiagnostics.LogAfterStart(_managerSetings);
