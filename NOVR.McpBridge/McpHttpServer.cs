@@ -88,10 +88,12 @@ public sealed class McpHttpServer : IDisposable
     {
         var sb = new StringBuilder("[");
         var first = true;
-        foreach (var (name, descriptor) in ToolRegistry.Tools)
+        foreach (var tool in ToolRegistry.Tools)
         {
             if (!first) sb.Append(',');
             first = false;
+            var name = tool.Key;
+            var descriptor = tool.Value;
             sb.Append("{\"name\":\"");
             sb.Append(ToolRegistry.EscapeJson(name));
             sb.Append("\",\"description\":\"");
