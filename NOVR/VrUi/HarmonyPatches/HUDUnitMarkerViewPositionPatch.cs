@@ -1,5 +1,6 @@
 using HarmonyLib;
 using System.Reflection;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -42,7 +43,7 @@ internal static class HUDUnitMarkerViewPositionPatch
             
             
             
-            var targetInfo = (Text)TargetInfoField.GetValue(SceneSingleton<CombatHUD>.i);
+            var targetInfo = (TextMeshProUGUI)TargetInfoField.GetValue(SceneSingleton<CombatHUD>.i);
             if (targetInfo != null)
             {
                 targetInfo.transform.rotation = screenSpaceCamera.transform.rotation;
@@ -119,7 +120,7 @@ internal static class HUDUnitMarkerViewPositionPatch
         {
             var targetArrow = (Image)TargetArrowField.GetValue(instance);
             var targetArrowTail = (Transform)TargetArrowTailField.GetValue(instance);
-            var targetText = (Text)TargetTextField.GetValue(instance);
+            var targetText = (TextMeshProUGUI)TargetTextField.GetValue(instance);
 
             targetArrow.enabled = enabled;
             targetText.enabled = enabled;

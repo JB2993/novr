@@ -1,5 +1,6 @@
 using HarmonyLib;
 using System.Reflection;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -41,7 +42,7 @@ internal static class AirbaseOverlayViewPositionPatch
     private static void UpdateAirbaseMarker(global::AirbaseOverlay overlay, Aircraft aircraft)
     {
         var airbaseMarker = (Image)AirbaseMarkerField.GetValue(overlay);
-        var airbaseLabel = (Text)AirbaseLabelField.GetValue(overlay);
+        var airbaseLabel = (TextMeshProUGUI)AirbaseLabelField.GetValue(overlay);
         var nearestAirbase = (Airbase)NearestAirbaseField.GetValue(overlay);
         var runwayUsage = GetRunwayUsage(overlay);
         var landing = (bool)LandingField.GetValue(overlay);

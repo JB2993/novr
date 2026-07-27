@@ -1,5 +1,6 @@
 using HarmonyLib;
 using System.Reflection;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -40,8 +41,8 @@ internal static class HUDBombingStateViewPositionPatch
     {
         var alignmentBar = (Image)AlignmentBarField.GetValue(state);
         var ccrpCircle = (Image)CcrpCircleField.GetValue(state);
-        var dropCountdown = (Text)DropCountdownField.GetValue(state);
-        var ccrpFallTime = (Text)CcrpFallTimeField.GetValue(state);
+        var dropCountdown = (TextMeshProUGUI)DropCountdownField.GetValue(state);
+        var ccrpFallTime = (TextMeshProUGUI)CcrpFallTimeField.GetValue(state);
         var cockpitHudCamera = APIBus.CockpitHudCamera;
         if (alignmentBar == null || cockpitHudCamera == null || !alignmentBar.gameObject.activeSelf)
             return;
@@ -77,7 +78,7 @@ internal static class HUDBombingStateViewPositionPatch
     {
         var ccipPipper = (Image)CcipPipperField.GetValue(state);
         var ccipLine = (Image)CcipLineField.GetValue(state);
-        var ccipFallTime = (Text)CcipFallTimeField.GetValue(state);
+        var ccipFallTime = (TextMeshProUGUI)CcipFallTimeField.GetValue(state);
         var velocityVector = SceneSingleton<FlightHud>.i.velocityVector;
         var cockpitHudCamera = APIBus.CockpitHudCamera;
         if (ccipPipper == null || ccipLine == null || cockpitHudCamera == null || velocityVector == null || !ccipPipper.enabled)
