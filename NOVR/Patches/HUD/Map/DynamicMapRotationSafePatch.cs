@@ -1,5 +1,6 @@
 using System.Reflection;
 using HarmonyLib;
+using NOVR.VrUi.SpecialBehavior;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -31,6 +32,18 @@ internal static class DynamicMapRotationSafePatch
         [HarmonyPostfix]
         private static void Postfix(global::DynamicMap __instance)
         {
+            // UIBehaviorPatcher hooks DynamicMap's parameterless constructor to attach the VR
+            // behaviour, but that postfix does not fire as of Nuclear Option 0.34 (no
+            // "Adding NOVRDynamicMapBehavior" line appears in the log and no exception is
+            // thrown). Without the behaviour nothing assigns a world camera to the map canvas,
+            // so the map renders on the desktop mirror but is invisible in the headset.
+            // Attaching from Awake is not dependent on how or when the component is constructed.
+            if (!__instance.gameObject.TryGetComponent<NOVRDynamicMapBehavior>(out _))
+            {
+                NOVRLog.Info("DynamicMap.Awake: attaching NOVRDynamicMapBehavior");
+                __instance.gameObject.AddComponent<NOVRDynamicMapBehavior>();
+            }
+
             _minimapCanvasGroup = __instance.gameObject.GetComponent<CanvasGroup>();
             if (_minimapCanvasGroup == null)
             {

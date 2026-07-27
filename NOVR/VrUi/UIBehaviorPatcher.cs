@@ -69,6 +69,14 @@ public class UIBehaviorPatcher : NOVRBehaviour
             {
                 harmony.Patch(ctor, postfix: new HarmonyMethod(postfixMethod));
             }
+            else
+            {
+                // Previously a silent skip, which made a missing behaviour impossible to
+                // diagnose from the log. If this fires the type needs a different attach point.
+                Debug.LogWarning(
+                    $"UIBehaviorPatcher: no parameterless ctor found for {targetType.FullName} - " +
+                    $"SKIPPED, {entry.Value.Name} will never be attached via the ctor hook");
+            }
         }
     }
 
@@ -83,8 +91,18 @@ public class UIBehaviorPatcher : NOVRBehaviour
     // Adding components directly from the constructor scope is risky so we defer it till the next update
     static void EnqueueForAddition(Component comp)
     {
-        var toAddComp = _patchMap[comp.GetType()];
-        _toPatch_component[comp] = toAddComp;
+        // Was an exact-type indexer lookup, which throws KeyNotFoundException from inside a
+        // Harmony constructor postfix if the game ever subclasses a patched type (the base ctor
+        // still runs, but GetType() returns the derived type). Walk the hierarchy instead.
+        for (var type = comp.GetType(); type != null; type = type.BaseType)
+        {
+            if (!_patchMap.TryGetValue(type, out var toAddComp)) continue;
+
+            _toPatch_component[comp] = toAddComp;
+            return;
+        }
+
+        Debug.LogWarning($"UIBehaviorPatcher: no _patchMap entry for {comp.GetType().FullName}");
     }
 
 
@@ -106,22 +124,36 @@ public class UIBehaviorPatcher : NOVRBehaviour
             _toReactivate.Clear();
         }
 
+        // Previously this loop `return`ed on the first component with an unresolved name, which
+        // abandoned every remaining entry for that frame. It happened to recover because the
+        // dictionary was only cleared after a full pass, but any component whose name never
+        // resolved would permanently starve everything queued behind it. Defer the unresolved
+        // ones individually and requeue them instead.
+        var deferred = new List<KeyValuePair<Component, Type>>();
+
         foreach (var kvp in _toPatch_component)
         {
-            Debug.Log($"UIBehaviorPatcher: Adding {kvp.Value.Name} to {kvp.Key.name} (component patch)");
-            if (kvp.Key.name == "" || kvp.Key.name == null)
-            {
-                Debug.LogWarning($"Component not loaded fully?");
-                return;
-            }
             var comp = kvp.Key;
             var toAdd = kvp.Value;
+
+            if (comp == null) continue; // destroyed before we got to it
+
+            if (string.IsNullOrEmpty(comp.name))
+            {
+                Debug.LogWarning($"UIBehaviorPatcher: {toAdd.Name} target not loaded fully, retrying next frame");
+                deferred.Add(kvp);
+                continue;
+            }
+
+            Debug.Log($"UIBehaviorPatcher: Adding {toAdd.Name} to {comp.name} (component patch)");
             if (!comp.gameObject.TryGetComponent(toAdd, out Component _))
             {
                 AddAndBounceIfActive(comp.gameObject, toAdd);
             }
         }
+
         _toPatch_component.Clear();
+        foreach (var kvp in deferred) _toPatch_component[kvp.Key] = kvp.Value;
 
 
         if (_toPatch_name.Count > 0)
